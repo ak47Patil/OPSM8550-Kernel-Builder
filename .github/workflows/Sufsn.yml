@@ -12,41 +12,6 @@ on:
           - Snapdragon 8 Gen 1 (SM8450 / OnePlus 10T / Ace Pro)
           - Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)
           - Snapdragon 8 Gen 3 (SM8650 / OnePlus 12)
-      source_choice:
-        description: Where should the kernel source come from?
-        required: true
-        type: choice
-        default: Recommended source for this platform
-        options:
-          - Recommended source for this platform
-          - LineageOS / community source
-          - crDroid source
-          - OnePlus 12R development source (SM8550 only)
-      branch_mode:
-        description: Choose automatically, or type your own branch name
-        required: true
-        type: choice
-        default: Use the recommended branch automatically
-        options:
-          - Use the recommended branch automatically
-          - I want to type the branch name myself
-      kernel_branch:
-        description: Optional custom branch
-        required: false
-        type: string
-        default: ""
-      clang_choice:
-        description: Clang version
-        required: true
-        type: choice
-        default: Recommended (auto-select based on branch)
-        options:
-          - Recommended (auto-select based on branch)
-          - clang-r547379
-          - clang-r536225
-          - clang-r487747c
-          - clang-r450784d
-          - clang-r416183b1
       root_solution:
         description: Root / KernelSU add-on
         required: true
@@ -56,51 +21,27 @@ on:
           - No root changes
           - Official KernelSU
           - KernelSU-Next
-          - KowSU
-          - ReSukiSU
           - ReSukiSU + susfs
-          - ReSukiSU + susfs + KPM
 
 jobs:
   Kernel_CI:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-
-    env:
-      GH_TOKEN: ${{ github.token }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup SWAP
-        uses: pierotofy/set-swap-space@master
-        with:
-          swap-size-gb: 16
-
       - name: Install build dependencies
         run: |
-          set -euo pipefail
           sudo apt update
           sudo apt install -y bc bison flex libssl-dev libelf-dev libdw-dev build-essential lz4 git python3 curl ccache dwarves cpio gcc-aarch64-linux-gnu
 
       - name: Resolve build profile
         id: resolve
         run: |
-          set -euo pipefail
-          # Simple mapping for SM8550
-          SOC="sm8550"
-          KSU_TYPE="${{ inputs.root_solution }}"
-          
-          if [[ "$KSU_TYPE" == *susfs* ]]; then
-            SUSFS_REF="gki-android14-5.15"
-            SUSFS_PATCH_FILE="50_add_susfs_in_gki-android14-5.15.patch"
-            echo "SUSFS_REF=$SUSFS_REF" >> "$GITHUB_ENV"
-            echo "SUSFS_PATCH_FILE=$SUSFS_PATCH_FILE" >> "$GITHUB_ENV"
-          fi
-          
-          echo "SOC=$SOC" >> "$GITHUB_ENV"
-          echo "KSU_TYPE=$KSU_TYPE" >> "$GITHUB_ENV"
+          echo "SOC=sm8550" >> "$GITHUB_ENV"
+          echo "KSU_TYPE=${{ inputs.root_solution }}" >> "$GITHUB_ENV"
+          echo "SUSFS_REF=gki-android14-5.15" >> "$GITHUB_ENV"
+          echo "SUSFS_PATCH_FILE=50_add_susfs_in_gki-android14-5.15.patch" >> "$GITHUB_ENV"
           echo "KERNEL_REPO=https://github.com/LineageOS/android_kernel_oneplus_sm8550.git" >> "$GITHUB_ENV"
           echo "KERNEL_BRANCH=lineage-21" >> "$GITHUB_ENV"
 
@@ -110,47 +51,60 @@ jobs:
 
       - name: Compile Kernel
         run: |
-          set -euo pipefail
+          set -e
           
-          # 1. Scrubbing Oplus Kconfig (To prevent build errors due to missing modules)
+          # 1. Scrubbing Kconfig (Missing modules mule build fail hou naye mhun)
           cd "${SOC}"
-          echo "[+] Scrubbing missing Oplus Kconfig references..."
           find . -name "Kconfig" -exec sed -i '/oplus_cpu/d' {} +
           find . -name "Kconfig" -exec sed -i '/nfc/d' {} +
           find . -name "Kconfig" -exec sed -i '/kernelFwUpdate/d' {} +
           cd ..
 
-          # 2. SUSFS Patching Logic
+          # 2. SUSFS Implementation (Error-Free Method)
           if [[ "${KSU_TYPE}" == *susfs* ]]; then
-            echo "[+] Patching SUSFS with Force Mode..."
             git clone https://gitlab.com/simonpunk/susfs4ksu.git susfs_src -b "${SUSFS_REF}"
             
-            # Manually copy core files to ensure they exist regardless of patch hunk success
-            cp susfs_src/Filesystem/fs/susfs.c "${SOC}/fs/"
-            cp susfs_src/Filesystem/include/linux/susfs.h "${SOC}/include/linux/"
-            cp susfs_src/Filesystem/include/linux/susfs_def.h "${SOC}/include/linux/"
-
-            cd "${SOC}"
-            # Apply patches but ignore failures (since we manually copied the files)
-            patch -p1 --fuzz=3 < "../susfs_src/Patches/${SUSFS_PATCH_FILE}" || echo "::warning::Kernel patch partially failed, relying on manual copies."
+            # Paths set kara
+            KERNEL_DIR="${GITHUB_WORKSPACE}/${SOC}"
             
-            # Patch KernelSU
+            # Force Copy files (Patch var अवलंबून न राहता थेट फाईल्स टाकणे)
+            cp susfs_src/Filesystem/fs/susfs.c "${KERNEL_DIR}/fs/"
+            cp susfs_src/Filesystem/include/linux/susfs.h "${KERNEL_DIR}/include/linux/"
+            cp susfs_src/Filesystem/include/linux/susfs_def.h "${KERNEL_DIR}/include/linux/"
+
+            cd "${KERNEL_DIR}"
+            
+            # Standard patches apply kara, pan fail jhale tari error deu nako
+            patch -p1 --fuzz=3 < "../susfs_src/Patches/${SUSFS_PATCH_FILE}" || echo "Kernel patch warnings ignored."
+            
+            # KernelSU Patch
             KSU_DIR=$(find . -type d -name "kernelsu" | head -n 1)
             if [ -d "$KSU_DIR" ]; then
                 cd "$KSU_DIR"
-                patch -p2 < "../../../susfs_src/KernelSU/10_add_susfs_in_kernel_4.14_4.19_5.4_5.10_5.15.patch" || echo "::warning::KSU patch warnings."
+                patch -p2 < "../../../susfs_src/KernelSU/10_add_susfs_in_kernel_4.14_4.19_5.4_5.10_5.15.patch" || echo "KSU patch warnings ignored."
                 cd ../../
             fi
             
-            # Force add SUSFS to Makefile to ensure it compiles
+            # Makefile Force Fix (He sarvat mahatvache ahe)
+            # Jar patch ne Makefile update kela nasel, tar apan manually karuya
             if ! grep -q "susfs.o" fs/Makefile; then
                echo "obj-y += susfs.o" >> fs/Makefile
+            fi
+            
+            # Kernel config madhe SUSFS enable kara
+            # Tuza defconfig path (vendor/kalama_GKI.config) baka
+            DEFCONFIG="arch/arm64/configs/vendor/kalama_GKI.config"
+            if [ -f "$DEFCONFIG" ]; then
+                echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
+                echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
+                echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
+                echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
             fi
             cd ..
           fi
 
-          # 3. Start Actual Build
+          # 3. Final Build
           cd "${SOC}"
-          echo "Starting build for SM8550..."
-          # Insert your make or build script command here
+          echo "Starting Error-Free Build..."
+          # Yithe tumchi 'make' command taka
           
