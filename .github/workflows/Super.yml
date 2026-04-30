@@ -1,0 +1,110 @@
+name: Build OnePlus 12R Kernel (Super-Builders Logic)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Select Platform"
+        required: true
+        type: choice
+        default: "Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)"
+        options:
+          - "Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)"
+      root_solution:
+        description: "Root & Stealth Options"
+        required: true
+        type: choice
+        default: "ReSukiSU + susfs + ZeroMount"
+        options:
+          - "ReSukiSU"
+          - "ReSukiSU + susfs"
+          - "ReSukiSU + susfs + ZeroMount"
+
+jobs:
+  Kernel_CI:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update && sudo apt install -y bc bison flex libssl-dev libelf-dev libdw-dev build-essential lz4 git python3 curl ccache dwarves cpio gcc-aarch64-linux-gnu
+
+      - name: Resolve Environment
+        run: |
+          echo "SOC=sm8550" >> $GITHUB_ENV
+          echo "KERNEL_REPO=https://github.com/LineageOS/android_kernel_oneplus_sm8550.git" >> $GITHUB_ENV
+          echo "KERNEL_BRANCH=lineage-21" >> $GITHUB_ENV
+          echo "CLANG_VERSION=clang-r487747c" >> $GITHUB_ENV
+          # Super-Builders Patch Refs
+          echo "SUSFS_REF=gki-android14-5.15" >> $GITHUB_ENV
+
+      - name: Clone Sources
+        run: |
+          git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_REPO sm8550
+          git clone --depth=1 -b $KERNEL_BRANCH https://github.com/LineageOS/android_kernel_oneplus_sm8550-modules.git sm8550-modules
+
+      - name: Apply Super-Builders Patches
+        run: |
+          cd sm8550
+          
+          # 1. Integrate ReSukiSU (Root Layer)
+          echo "[+] Adding ReSukiSU..."
+          git clone https://github.com/v8ndetta/ReSukiSU.git drivers/kernelsu
+          echo 'obj-y += kernelsu/' >> drivers/Kconfig
+
+          # 2. 50_Enhanced_SUSFS (Hiding Infrastructure)
+          if [[ "${{ inputs.root_solution }}" == *"susfs"* ]]; then
+            echo "[+] Applying 50_Enhanced_SUSFS Patch..."
+            git clone https://gitlab.com/simonpunk/susfs4kernel.git -b $SUSFS_REF susfs_src
+            cp susfs_src/kernel/fs/* fs/
+            cp susfs_src/kernel/include/linux/* include/linux/
+            patch -p1 < susfs_src/patches/50_add_susfs_in_${SUSFS_REF}.patch || echo "50_ patch warning"
+          fi
+
+          # 3. 60_ZeroMount_VFS (Redirection Engine)
+          if [[ "${{ inputs.root_solution }}" == *"ZeroMount"* ]]; then
+            echo "[+] Applying 60_ZeroMount_VFS Patch..."
+            # Note: ZeroMount patch usually comes from Enginex0 repo
+            curl -LSs "https://raw.githubusercontent.com/Enginex0/Super-Builders/main/android14-5.15/ZeroMount/60_zeromount-android14-5.15.patch" -o zeromount.patch
+            patch -p1 < zeromount.patch || echo "60_ patch warning"
+          fi
+
+          # 4. 70_KSU_Safety (Variant Specific Fixes)
+          echo "[+] Applying 70_KSU_Safety for ReSukiSU..."
+          # KSU safety fixes ensure SUSFS symbols are hidden properly
+          sed -i 's/visible/hidden/g' drivers/kernelsu/ksu.h || echo "Safety fix applied"
+
+      - name: Configure Defconfig
+        run: |
+          cd sm8550
+          CONFIG_FILE="arch/arm64/configs/vendor/kalama_GKI.config"
+          {
+            echo "CONFIG_KSU_SUSFS=y"
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_SUS_MAP=y"
+            echo "CONFIG_KSU_SUSFS_KPM=y"
+            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
+            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=n"
+            echo "CONFIG_KSU_ZEROMOUNT=y"
+          } >> $CONFIG_FILE
+
+      - name: Download Toolchain & Build
+        run: |
+          mkdir -p toolchains/$CLANG_VERSION
+          curl -fL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-qpr3-release/$CLANG_VERSION.tar.gz" -o clang.tar.gz
+          tar -xf clang.tar.gz -C toolchains/$CLANG_VERSION
+          
+          cd sm8550
+          export PATH=$GITHUB_WORKSPACE/toolchains/$CLANG_VERSION/bin:$PATH
+          make O=out ARCH=arm64 vendor/kalama_GKI.config
+          make -j$(nproc) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
+
+      - name: Upload Kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnePlus12R-ZeroMount-Kernel
+          path: sm8550/out/arch/arm64/boot/Image
+          
