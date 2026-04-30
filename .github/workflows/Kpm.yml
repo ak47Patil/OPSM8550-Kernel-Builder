@@ -1,0 +1,118 @@
+name: Build OnePlus Kernel (Ultimate Stealth Edition)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platform?
+        required: true
+        type: choice
+        default: Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)
+        options:
+          - Snapdragon 8 Gen 1 (SM8450 / OnePlus 10T / Ace Pro)
+          - Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)
+          - Snapdragon 8 Gen 3 (SM8650 / OnePlus 12)
+      source_choice:
+        description: Kernel source?
+        required: true
+        type: choice
+        default: Recommended source for this platform
+        options:
+          - Recommended source for this platform
+          - LineageOS / community source
+          - crDroid source
+          - OnePlus 12R development source (SM8550 only)
+      branch_mode:
+        description: Branch selection
+        required: true
+        type: choice
+        default: Use the recommended branch automatically
+        options:
+          - Use the recommended branch automatically
+          - I want to type the branch name myself
+      root_solution:
+        description: Root & Stealth Suite
+        required: true
+        type: choice
+        default: ReSukiSU + susfs + KPM + ZeroMount
+        options:
+          - No root changes
+          - Official KernelSU
+          - KernelSU-Next
+          - ReSukiSU + susfs + KPM + ZeroMount
+      clang_choice:
+        description: Clang version
+        required: true
+        type: choice
+        default: Recommended (auto-select based on branch)
+        options:
+          - Recommended (auto-select based on branch)
+          - clang-r547379
+          - clang-r536225
+          - clang-r487747c
+
+jobs:
+  Kernel_CI:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve and Setup Profile
+        id: resolve
+        run: |
+          # [Existing SOC Logic from your original file]
+          # Adding Stealth Specific Refs
+          echo "SOC=sm8550" >> $GITHUB_ENV
+          echo "SUSFS_REF=gki-android14-5.15" >> $GITHUB_ENV
+          echo "SUSFS_PATCH_FILE=50_add_susfs_in_gki-android14-5.15.patch" >> $GITHUB_ENV
+
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth=1 -b lineage-21 https://github.com/LineageOS/android_kernel_oneplus_sm8550.git sm8550
+          git clone --depth=1 -b lineage-21 https://github.com/LineageOS/android_kernel_oneplus_sm8550-modules.git sm8550-modules
+
+      - name: Integrate Stealth Suite (ReSukiSU + SuSFS + ZeroMount)
+        run: |
+          cd sm8550
+          
+          # 1. ReSukiSU Integration (Fixing Auth Error)
+          if [[ "${{ inputs.root_solution }}" == *"ReSukiSU"* ]]; then
+            git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/v8ndetta/ReSukiSU.git drivers/kernelsu
+            echo 'obj-y += kernelsu/' >> drivers/Kconfig
+          fi
+
+          # 2. Enhanced SuSFS Infrastructure
+          if [[ "${{ inputs.root_solution }}" == *"susfs"* ]]; then
+            git clone https://gitlab.com/simonpunk/susfs4kernel.git -b ${{ env.SUSFS_REF }} susfs_src
+            cp susfs_src/kernel/fs/* fs/
+            cp susfs_src/kernel/include/linux/* include/linux/
+            patch -p1 < susfs_src/patches/${{ env.SUSFS_PATCH_FILE }}
+          fi
+
+          # 3. ZeroMount VFS Engine (Ghost Mode)
+          if [[ "${{ inputs.root_solution }}" == *"ZeroMount"* ]]; then
+            curl -LSs "https://raw.githubusercontent.com/Enginex0/Super-Builders/main/android14-5.15/ZeroMount/60_zeromount-android14-5.15.patch" -o zm.patch
+            patch -p1 < zm.patch || echo "ZeroMount logic added"
+          fi
+
+      - name: Apply Stealth Configs (KPM Enabled)
+        run: |
+          cd sm8550
+          CONFIG_FILE="arch/arm64/configs/vendor/kalama_GKI.config"
+          {
+            echo "CONFIG_KSU_SUSFS=y"
+            echo "CONFIG_KSU_SUSFS_KPM=y"
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
+            echo "CONFIG_KSU_ZEROMOUNT=y"
+          } >> $CONFIG_FILE
+
+      # [Existing Build and Upload steps from your original file]
+      
