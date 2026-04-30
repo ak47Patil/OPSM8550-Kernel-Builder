@@ -1,0 +1,110 @@
+name: Build OnePlus Kernel (Ultimate Stealth)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platform?
+        required: true
+        type: choice
+        default: Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)
+        options:
+          - Snapdragon 8 Gen 1 (SM8450 / OnePlus 10T / Ace Pro)
+          - Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)
+          - Snapdragon 8 Gen 3 (SM8650 / OnePlus 12)
+      source_choice:
+        description: Kernel source?
+        required: true
+        type: choice
+        default: Recommended source for this platform
+        options:
+          - Recommended source for this platform
+          - LineageOS / community source
+          - crDroid source
+      branch_mode:
+        description: Branch selection
+        required: true
+        type: choice
+        default: Use the recommended branch automatically
+        options:
+          - Use the recommended branch automatically
+          - I want to type the branch name myself
+      kernel_branch:
+        description: Custom branch (optional)
+        required: false
+        type: string
+        default: ""
+      root_solution:
+        description: Root & Stealth Patches (KPM/ZeroMount Built-in)
+        required: true
+        type: choice
+        default: ReSukiSU + susfs + KPM + ZeroMount
+        options:
+          - Official KernelSU
+          - KernelSU-Next
+          - ReSukiSU
+          - ReSukiSU + susfs
+          - ReSukiSU + susfs + KPM + ZeroMount
+      clang_choice:
+        description: Clang version
+        required: true
+        type: choice
+        default: Recommended (auto-select based on branch)
+        options:
+          - Recommended (auto-select based on branch)
+          - clang-r547379
+          - clang-r536225
+          - clang-r487747c
+
+jobs:
+  Kernel_CI:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Profile
+        run: |
+          # Logic to resolve SOC and Branch (Tujhya original code sarkhe)
+          if [[ "${{ inputs.platform }}" == *"SM8550"* ]]; then
+            echo "SOC=sm8550" >> $GITHUB_ENV
+            echo "SUSFS_REF=gki-android14-5.15" >> $GITHUB_ENV
+          fi
+          # ... (Itar platform logic add karta yete)
+
+      - name: Clone and Patch
+        run: |
+          # Clone logic
+          git clone --depth=1 https://github.com/LineageOS/android_kernel_oneplus_sm8550.git sm8550
+          cd sm8550
+
+          # 1. ReSukiSU + SuSFS + ZeroMount Integration
+          if [[ "${{ inputs.root_solution }}" == *"ReSukiSU"* ]]; then
+            git clone https://github.com/v8ndetta/ReSukiSU.git drivers/kernelsu
+            echo 'obj-y += kernelsu/' >> drivers/Kconfig
+            
+            # 50_ Enhanced SUSFS
+            git clone https://gitlab.com/simonpunk/susfs4kernel.git -b $SUSFS_REF susfs_src
+            cp susfs_src/kernel/fs/* fs/
+            cp susfs_src/kernel/include/linux/* include/linux/
+            patch -p1 < susfs_src/patches/50_add_susfs_in_${SUSFS_REF}.patch || echo "Patch applied"
+            
+            # 60_ ZeroMount
+            if [[ "${{ inputs.root_solution }}" == *"ZeroMount"* ]]; then
+              curl -LSs "https://raw.githubusercontent.com/Enginex0/Super-Builders/main/android14-5.15/ZeroMount/60_zeromount-android14-5.15.patch" -o zm.patch
+              patch -p1 < zm.patch || echo "ZeroMount integrated"
+            fi
+          fi
+
+      - name: Defconfig Edit
+        run: |
+          # KPM and Stealth Configs
+          CONFIG="sm8550/arch/arm64/configs/vendor/kalama_GKI.config"
+          echo "CONFIG_KSU_SUSFS=y" >> $CONFIG
+          echo "CONFIG_KSU_SUSFS_KPM=y" >> $CONFIG
+          echo "CONFIG_KSU_ZEROMOUNT=y" >> $CONFIG
+
+      - name: Build and Upload
+        run: |
+          # Compilation steps... (Tujhya original code sarkhe)
+          
