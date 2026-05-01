@@ -1,0 +1,110 @@
+name: Build OnePlus Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform'
+        required: true
+        default: 'Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)'
+        type: choice
+        options:
+          - 'Snapdragon 8 Gen 1 (SM8450 / OnePlus 10T / Ace Pro)'
+          - 'Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)'
+          - 'Snapdragon 8 Gen 3 (SM8650 / OnePlus 12)'
+      source_preset:
+        description: 'Source'
+        required: true
+        default: 'Recommended source for this platform'
+        type: choice
+        options:
+          - 'Recommended source for this platform'
+          - 'OnePlus official source'
+          - 'LineageOS / community source'
+          - 'crDroid source'
+          - 'OnePlus 12R development source (SM8550 only)'
+      branch_mode:
+        description: 'Branch Mode'
+        required: true
+        default: 'Use the recommended branch automatically'
+        type: choice
+        options:
+          - 'Use the recommended branch automatically'
+          - 'I want to type the branch name myself'
+      clang_version:
+        description: 'Clang Version'
+        required: true
+        default: 'Recommended (auto-select based on branch)'
+        type: choice
+        options:
+          - 'Recommended (auto-select based on branch)'
+          - 'clang-r563880c (Android 16 / LineageOS 23.2+ era)'
+          - 'clang-r547379 (Android 16 / LineageOS 23.0 era)'
+          - 'clang-r536225 (Android 15 / LineageOS 22.2 era)'
+          - 'clang-r487747c (Android 14 / LineageOS 21 era)'
+          - 'clang-r450784d (Android 13 / LineageOS 20 era)'
+          - 'clang-r416183b1 (Android 12 / LineageOS 19.1 era)'
+      root_preset:
+        description: 'Root / KernelSU Preset'
+        required: true
+        default: 'ReSukiSU + susfs + KPM + ZeroMount'
+        type: choice
+        options:
+          - 'No root changes'
+          - 'Official KernelSU'
+          - 'KernelSU-Next'
+          - 'KowSU'
+          - 'ReSukiSU'
+          - 'ReSukiSU + susfs'
+          - 'ReSukiSU + susfs + KPM'
+          - 'ReSukiSU + susfs + KPM + ZeroMount'
+          - 'ReSukiSU + susfs (build both: with KPM and without KPM)'
+
+jobs:
+  build-kernel:
+    name: Build Kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Environment and Swap
+        run: |
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev libdw-dev \
+            build-essential lz4 git python3 curl ccache dwarves cpio \
+            gcc-aarch64-linux-gnu zip
+
+      - name: Print Selected Workflow Inputs
+        run: |
+          echo "Selected Platform: ${{ github.event.inputs.platform }}"
+          echo "Selected Source: ${{ github.event.inputs.source_preset }}"
+          echo "Branch Mode: ${{ github.event.inputs.branch_mode }}"
+          echo "Root Preset: ${{ github.event.inputs.root_preset }}"
+
+      - name: Setup KernelSU / ReSukiSU / SUSFS / Zmount
+        run: |
+          if [[ "${{ github.event.inputs.root_preset }}" == *"ZeroMount"* ]]; then
+             echo "Applying ReSukiSU + SUSFS + KPM + ZeroMount patches..."
+             # Zmount logic will run here because the string contains 'ZeroMount'
+          else
+             echo "Applying standard selected root patches..."
+          fi
+          
+      - name: Build Kernel Placeholder
+        run: |
+          echo "Starting the build process..."
+
+      - name: Package Output (AnyKernel3)
+        run: |
+          echo "Packaging zip..."
+          
