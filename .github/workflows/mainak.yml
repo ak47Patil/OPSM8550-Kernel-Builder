@@ -1,7 +1,6 @@
 Name: Build OnePlus Kernel
 run-name: >-
   ${{ inputs.platform }} | ${{ inputs.source_choice }} | ${{ inputs.root_solution }}
-
 on:
   workflow_dispatch:
     inputs:
