@@ -1,10 +1,12 @@
-name: Build OnePlus Kernel (Ultimate Stealth)
+name: Build OnePlus Kernel
+run-name: >-
+  ${{ inputs.platform }} | ${{ inputs.source_choice }} | ${{ inputs.root_solution }}
 
 on:
   workflow_dispatch:
     inputs:
       platform:
-        description: Which platform?
+        description: Target chipset / device family
         required: true
         type: choice
         default: Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)
@@ -13,16 +15,18 @@ on:
           - Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)
           - Snapdragon 8 Gen 3 (SM8650 / OnePlus 12)
       source_choice:
-        description: Kernel source?
+        description: Upstream kernel source preset
         required: true
         type: choice
         default: Recommended source for this platform
         options:
           - Recommended source for this platform
+          - OnePlus official source
           - LineageOS / community source
           - crDroid source
+          - OnePlus 12R development source (SM8550 only)
       branch_mode:
-        description: Branch selection
+        description: Use the upstream default branch or enter one manually
         required: true
         type: choice
         default: Use the recommended branch automatically
@@ -30,81 +34,108 @@ on:
           - Use the recommended branch automatically
           - I want to type the branch name myself
       kernel_branch:
-        description: Custom branch (optional)
+        description: Only used in manual mode, for example lineage-23.2
         required: false
         type: string
         default: ""
-      root_solution:
-        description: Root & Stealth Patches (KPM/ZeroMount Built-in)
-        required: true
-        type: choice
-        default: ReSukiSU + susfs + KPM + ZeroMount
-        options:
-          - Official KernelSU
-          - KernelSU-Next
-          - ReSukiSU
-          - ReSukiSU + susfs
-          - ReSukiSU + susfs + KPM + ZeroMount
       clang_choice:
-        description: Clang version
+        description: Compiler preset. Auto is recommended for most builds.
         required: true
         type: choice
         default: Recommended (auto-select based on branch)
         options:
           - Recommended (auto-select based on branch)
-          - clang-r547379
-          - clang-r536225
-          - clang-r487747c
+          - clang-r563880c (Android 16 / LineageOS 23.2+ era)
+          - clang-r547379 (Android 16 / LineageOS 23.0 era)
+          - clang-r536225 (Android 15 / LineageOS 22.2 era)
+          - clang-r487747c (Android 14 / LineageOS 21 era)
+          - clang-r450784d (Android 13 / LineageOS 20 era)
+          - clang-r416183b1 (Android 12 / LineageOS 19.1 era)
+      root_solution:
+        description: KernelSU / root add-on preset
+        required: true
+        type: choice
+        default: No root changes
+        options:
+          - No root changes
+          - Official KernelSU
+          - KernelSU-Next
+          - KowSU
+          - ReSukiSU
+          - ReSukiSU + susfs
+          - ReSukiSU + susfs + KPM
+          - ReSukiSU + susfs + KPM + ZeroMount
+          - ReSukiSU + susfs (build both: with KPM and without KPM)
 
 jobs:
-  Kernel_CI:
+  prepare:
+    name: Resolve requested build variants
     runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.select-matrix.outputs.build_matrix }}
+    steps:
+      - name: Select build matrix
+        id: select-matrix
+        run: |
+          set -euo pipefail
+
+          case "${{ inputs.root_solution }}" in
+            "No root changes")
+              BUILD_MATRIX='{"include":[{"build_label":"No root changes","ksu_type":"None"}]}'
+              ;;
+            "Official KernelSU")
+              BUILD_MATRIX='{"include":[{"build_label":"Official KernelSU","ksu_type":"Official-KernelSU"}]}'
+              ;;
+            "KernelSU-Next")
+              BUILD_MATRIX='{"include":[{"build_label":"KernelSU-Next","ksu_type":"KernelSU-Next"}]}'
+              ;;
+            "KowSU")
+              BUILD_MATRIX='{"include":[{"build_label":"KowSU","ksu_type":"KowSU"}]}'
+              ;;
+            "ReSukiSU")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU","ksu_type":"ReSukiSU"}]}'
+              ;;
+            "ReSukiSU + susfs")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU + susfs","ksu_type":"ReSukiSU-with-susfs"}]}'
+              ;;
+            "ReSukiSU + susfs + KPM")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU + susfs + KPM","ksu_type":"ReSukiSU-with-susfs-KPM"}]}'
+              ;;
+            "ReSukiSU + susfs + KPM + ZeroMount")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU + susfs + KPM + ZeroMount","ksu_type":"ReSukiSU-with-susfs-KPM-ZeroMount"}]}'
+              ;;
+            "ReSukiSU + susfs (build both: with KPM and without KPM)")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU + susfs","ksu_type":"ReSukiSU-with-susfs"},{"build_label":"ReSukiSU + susfs + KPM","ksu_type":"ReSukiSU-with-susfs-KPM"}]}'
+              ;;
+            *)
+              echo "::error::Unsupported root solution: ${{ inputs.root_solution }}"
+              exit 1
+              ;;
+          esac
+
+          echo "build_matrix=${BUILD_MATRIX}" >> "$GITHUB_OUTPUT"
+
+  Kernel_CI:
+    name: Build ${{ matrix.build_label }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.build_matrix) }}
+    concurrency:
+      group: kernel-ci-${{ github.workflow }}-${{ github.ref_name }}-${{ inputs.platform }}-${{ inputs.source_choice }}-${{ inputs.branch_mode }}-${{ inputs.kernel_branch }}-${{ matrix.ksu_type }}-${{ inputs.clang_choice }}
+      cancel-in-progress: true
+
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Profile
-        run: |
-          # Logic to resolve SOC and Branch (Tujhya original code sarkhe)
-          if [[ "${{ inputs.platform }}" == *"SM8550"* ]]; then
-            echo "SOC=sm8550" >> $GITHUB_ENV
-            echo "SUSFS_REF=gki-android14-5.15" >> $GITHUB_ENV
-          fi
-          # ... (Itar platform logic add karta yete)
-
-      - name: Clone and Patch
-        run: |
-          # Clone logic
-          git clone --depth=1 https://github.com/LineageOS/android_kernel_oneplus_sm8550.git sm8550
-          cd sm8550
-
-          # 1. ReSukiSU + SuSFS + ZeroMount Integration
-          if [[ "${{ inputs.root_solution }}" == *"ReSukiSU"* ]]; then
-            git clone https://github.com/v8ndetta/ReSukiSU.git drivers/kernelsu
-            echo 'obj-y += kernelsu/' >> drivers/Kconfig
-            
-            # 50_ Enhanced SUSFS
-            git clone https://gitlab.com/simonpunk/susfs4kernel.git -b $SUSFS_REF susfs_src
-            cp susfs_src/kernel/fs/* fs/
-            cp susfs_src/kernel/include/linux/* include/linux/
-            patch -p1 < susfs_src/patches/50_add_susfs_in_${SUSFS_REF}.patch || echo "Patch applied"
-            
-            # 60_ ZeroMount
-            if [[ "${{ inputs.root_solution }}" == *"ZeroMount"* ]]; then
-              curl -LSs "https://raw.githubusercontent.com/Enginex0/Super-Builders/main/android14-5.15/ZeroMount/60_zeromount-android14-5.15.patch" -o zm.patch
-              patch -p1 < zm.patch || echo "ZeroMount integrated"
-            fi
-          fi
-
-      - name: Defconfig Edit
-        run: |
-          # KPM and Stealth Configs
-          CONFIG="sm8550/arch/arm64/configs/vendor/kalama_GKI.config"
-          echo "CONFIG_KSU_SUSFS=y" >> $CONFIG
-          echo "CONFIG_KSU_SUSFS_KPM=y" >> $CONFIG
-          echo "CONFIG_KSU_ZEROMOUNT=y" >> $CONFIG
-
-      - name: Build and Upload
-        run: |
-          # Compilation steps... (Tujhya original code sarkhe)
-          
+        
