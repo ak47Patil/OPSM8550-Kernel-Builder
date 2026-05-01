@@ -1,110 +1,508 @@
-name: Build OnePlus Kernel
+Name: Build OnePlus Kernel
+run-name: >-
+  ${{ inputs.platform }} | ${{ inputs.source_choice }} | ${{ inputs.root_solution }}
 
 on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Platform'
+        description: Target chipset / device family
         required: true
-        default: 'Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)'
         type: choice
+        default: Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)
         options:
-          - 'Snapdragon 8 Gen 1 (SM8450 / OnePlus 10T / Ace Pro)'
-          - 'Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)'
-          - 'Snapdragon 8 Gen 3 (SM8650 / OnePlus 12)'
-      source_preset:
-        description: 'Source'
+          - Snapdragon 8 Gen 1 (SM8450 / OnePlus 10T / Ace Pro)
+          - Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)
+          - Snapdragon 8 Gen 3 (SM8650 / OnePlus 12)
+      source_choice:
+        description: Upstream kernel source preset
         required: true
-        default: 'Recommended source for this platform'
         type: choice
+        default: Recommended source for this platform
         options:
-          - 'Recommended source for this platform'
-          - 'OnePlus official source'
-          - 'LineageOS / community source'
-          - 'crDroid source'
-          - 'OnePlus 12R development source (SM8550 only)'
+          - Recommended source for this platform
+          - OnePlus official source
+          - LineageOS / community source
+          - crDroid source
+          - OnePlus 12R development source (SM8550 only)
       branch_mode:
-        description: 'Branch Mode'
+        description: Use the upstream default branch or enter one manually
         required: true
-        default: 'Use the recommended branch automatically'
         type: choice
+        default: Use the recommended branch automatically
         options:
-          - 'Use the recommended branch automatically'
-          - 'I want to type the branch name myself'
-      clang_version:
-        description: 'Clang Version'
+          - Use the recommended branch automatically
+          - I want to type the branch name myself
+      kernel_branch:
+        description: Only used in manual mode, for example lineage-23.2
+        required: false
+        type: string
+        default: ""
+      clang_choice:
+        description: Compiler preset. Auto is recommended for most builds.
         required: true
-        default: 'Recommended (auto-select based on branch)'
         type: choice
+        default: Recommended (auto-select based on branch)
         options:
-          - 'Recommended (auto-select based on branch)'
-          - 'clang-r563880c (Android 16 / LineageOS 23.2+ era)'
-          - 'clang-r547379 (Android 16 / LineageOS 23.0 era)'
-          - 'clang-r536225 (Android 15 / LineageOS 22.2 era)'
-          - 'clang-r487747c (Android 14 / LineageOS 21 era)'
-          - 'clang-r450784d (Android 13 / LineageOS 20 era)'
-          - 'clang-r416183b1 (Android 12 / LineageOS 19.1 era)'
-      root_preset:
-        description: 'Root / KernelSU Preset'
+          - Recommended (auto-select based on branch)
+          - clang-r563880c (Android 16 / LineageOS 23.2+ era)
+          - clang-r547379 (Android 16 / LineageOS 23.0 era)
+          - clang-r536225 (Android 15 / LineageOS 22.2 era)
+          - clang-r487747c (Android 14 / LineageOS 21 era)
+          - clang-r450784d (Android 13 / LineageOS 20 era)
+          - clang-r416183b1 (Android 12 / LineageOS 19.1 era)
+      root_solution:
+        description: KernelSU / root add-on preset
         required: true
-        default: 'ReSukiSU + susfs + KPM + ZeroMount'
         type: choice
+        default: No root changes
         options:
-          - 'No root changes'
-          - 'Official KernelSU'
-          - 'KernelSU-Next'
-          - 'KowSU'
-          - 'ReSukiSU'
-          - 'ReSukiSU + susfs'
-          - 'ReSukiSU + susfs + KPM'
-          - 'ReSukiSU + susfs + KPM + ZeroMount'
-          - 'ReSukiSU + susfs (build both: with KPM and without KPM)'
+          - No root changes
+          - Official KernelSU
+          - KernelSU-Next
+          - KowSU
+          - ReSukiSU
+          - ReSukiSU + susfs
+          - ReSukiSU + susfs + KPM
+          - ReSukiSU + susfs + KPM + ZeroMount
+          - ReSukiSU + susfs (build both: with KPM and without KPM)
 
 jobs:
-  build-kernel:
-    name: Build Kernel
+  prepare:
+    name: Resolve requested build variants
+    runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.select-matrix.outputs.build_matrix }}
+    steps:
+      - name: Select build matrix
+        id: select-matrix
+        run: |
+          set -euo pipefail
+
+          case "${{ inputs.root_solution }}" in
+            "No root changes")
+              BUILD_MATRIX='{"include":[{"build_label":"No root changes","ksu_type":"None"}]}'
+              ;;
+            "Official KernelSU")
+              BUILD_MATRIX='{"include":[{"build_label":"Official KernelSU","ksu_type":"Official-KernelSU"}]}'
+              ;;
+            "KernelSU-Next")
+              BUILD_MATRIX='{"include":[{"build_label":"KernelSU-Next","ksu_type":"KernelSU-Next"}]}'
+              ;;
+            "KowSU")
+              BUILD_MATRIX='{"include":[{"build_label":"KowSU","ksu_type":"KowSU"}]}'
+              ;;
+            "ReSukiSU")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU","ksu_type":"ReSukiSU"}]}'
+              ;;
+            "ReSukiSU + susfs")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU + susfs","ksu_type":"ReSukiSU-with-susfs"}]}'
+              ;;
+            "ReSukiSU + susfs + KPM")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU + susfs + KPM","ksu_type":"ReSukiSU-with-susfs-KPM"}]}'
+              ;;
+            "ReSukiSU + susfs + KPM + ZeroMount")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU + susfs + KPM + ZeroMount","ksu_type":"ReSukiSU-with-susfs-KPM-ZeroMount"}]}'
+              ;;
+            "ReSukiSU + susfs (build both: with KPM and without KPM)")
+              BUILD_MATRIX='{"include":[{"build_label":"ReSukiSU + susfs","ksu_type":"ReSukiSU-with-susfs"},{"build_label":"ReSukiSU + susfs + KPM","ksu_type":"ReSukiSU-with-susfs-KPM"}]}'
+              ;;
+            *)
+              echo "::error::Unsupported root solution: ${{ inputs.root_solution }}"
+              exit 1
+              ;;
+          esac
+
+          echo "build_matrix=${BUILD_MATRIX}" >> "$GITHUB_OUTPUT"
+
+  Kernel_CI:
+    name: Build ${{ matrix.build_label }}
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.build_matrix) }}
+    concurrency:
+      group: kernel-ci-${{ github.workflow }}-${{ github.ref_name }}-${{ inputs.platform }}-${{ inputs.source_choice }}-${{ inputs.branch_mode }}-${{ inputs.kernel_branch }}-${{ matrix.ksu_type }}-${{ inputs.clang_choice }}
+      cancel-in-progress: true
+
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+
+    env:
+      GH_TOKEN: ${{ github.token }}
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Environment and Swap
-        run: |
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+      - name: Set up swap
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 16
 
-      - name: Install Build Dependencies
+      - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison flex libssl-dev libelf-dev libdw-dev \
-            build-essential lz4 git python3 curl ccache dwarves cpio \
-            gcc-aarch64-linux-gnu zip
+          set -euo pipefail
+          sudo apt update
+          sudo apt install -y \
+            bc \
+            bison \
+            flex \
+            libssl-dev \
+            libelf-dev \
+            libdw-dev \
+            build-essential \
+            lz4 \
+            git \
+            python3 \
+            curl \
+            ccache \
+            dwarves \
+            cpio \
+            gcc-aarch64-linux-gnu \
+            zip
 
-      - name: Print Selected Workflow Inputs
+      - name: Resolve build profile
+        id: resolve
         run: |
-          echo "Selected Platform: ${{ github.event.inputs.platform }}"
-          echo "Selected Source: ${{ github.event.inputs.source_preset }}"
-          echo "Branch Mode: ${{ github.event.inputs.branch_mode }}"
-          echo "Root Preset: ${{ github.event.inputs.root_preset }}"
+          set -euo pipefail
 
-      - name: Setup KernelSU / ReSukiSU / SUSFS / Zmount
-        run: |
-          if [[ "${{ github.event.inputs.root_preset }}" == *"ZeroMount"* ]]; then
-             echo "Applying ReSukiSU + SUSFS + KPM + ZeroMount patches..."
-             # Zmount logic will run here because the string contains 'ZeroMount'
+          case "${{ inputs.platform }}" in
+            "Snapdragon 8 Gen 1 (SM8450 / OnePlus 10T / Ace Pro)")
+              SOC="sm8450"
+              PLATFORM_SLUG="8gen1"
+              PLATFORM_NAME="Snapdragon 8 Gen 1"
+              BUILD_CONFIGS="vendor/waipio_GKI.config vendor/oplus/waipio_GKI.config vendor/debugfs.config"
+              OFFICIAL_BUILD_TARGET="waipio"
+              OFFICIAL_GKI_FRAGMENT="arch/arm64/configs/vendor/waipio_GKI.config"
+              RECOMMENDED_SOURCE="lineage-ovaltine-dev"
+              ;;
+            "Snapdragon 8 Gen 2 (SM8550 / OnePlus 11 / 12R)")
+              SOC="sm8550"
+              PLATFORM_SLUG="8gen2"
+              PLATFORM_NAME="Snapdragon 8 Gen 2"
+              BUILD_CONFIGS="vendor/kalama_GKI.config vendor/oplus/kalama_GKI.config vendor/debugfs.config"
+              OFFICIAL_BUILD_TARGET="kalama"
+              OFFICIAL_GKI_FRAGMENT="arch/arm64/configs/vendor/kalama_GKI.config"
+              RECOMMENDED_SOURCE="LineageOS"
+              ;;
+            "Snapdragon 8 Gen 3 (SM8650 / OnePlus 12)")
+              SOC="sm8650"
+              PLATFORM_SLUG="8gen3"
+              PLATFORM_NAME="Snapdragon 8 Gen 3"
+              BUILD_CONFIGS="vendor/pineapple_GKI.config vendor/oplus/pineapple_GKI.config"
+              OFFICIAL_BUILD_TARGET="pineapple"
+              OFFICIAL_GKI_FRAGMENT="arch/arm64/configs/vendor/pineapple_GKI.config"
+              RECOMMENDED_SOURCE="LineageOS"
+              ;;
+            *)
+              echo "::error::Unsupported platform: ${{ inputs.platform }}"
+              exit 1
+              ;;
+          esac
+
+          case "${{ inputs.source_choice }}" in
+            "Recommended source for this platform")
+              KERNEL_SOURCE="$RECOMMENDED_SOURCE"
+              SOURCE_LAYOUT="community-flat"
+              ;;
+            "OnePlus official source")
+              KERNEL_SOURCE="OnePlusOSS"
+              SOURCE_LAYOUT="oneplus-official"
+              ;;
+            "LineageOS / community source")
+              SOURCE_LAYOUT="community-flat"
+              case "$SOC" in
+                sm8450)
+                  KERNEL_SOURCE="lineage-ovaltine-dev"
+                  ;;
+                sm8550|sm8650)
+                  KERNEL_SOURCE="LineageOS"
+                  ;;
+              esac
+              ;;
+            "crDroid source")
+              SOURCE_LAYOUT="community-flat"
+              if [[ "$SOC" == "sm8450" ]]; then
+                echo "::error::crDroid source is not configured for Snapdragon 8 Gen 1 in this workflow yet."
+                exit 1
+              fi
+              KERNEL_SOURCE="crdroidandroid"
+              ;;
+            "OnePlus 12R development source (SM8550 only)")
+              SOURCE_LAYOUT="community-flat"
+              if [[ "$SOC" != "sm8550" ]]; then
+                echo "::error::OnePlus 12R development source is only available for Snapdragon 8 Gen 2 (SM8550)."
+                exit 1
+              fi
+              KERNEL_SOURCE="OnePlus12R-development"
+              ;;
+            *)
+              echo "::error::Unknown source choice: ${{ inputs.source_choice }}"
+              exit 1
+              ;;
+          esac
+
+          case "$KERNEL_SOURCE" in
+            "OnePlusOSS")
+              SOURCE_NAME="OnePlus official source"
+              SOURCE_SLUG="oneplus-official"
+              ;;
+            "LineageOS")
+              SOURCE_NAME="LineageOS"
+              SOURCE_SLUG="lineageos"
+              ;;
+            "lineage-ovaltine-dev")
+              SOURCE_NAME="LineageOS community (ovaltine)"
+              SOURCE_SLUG="lineage-community"
+              ;;
+            "crdroidandroid")
+              SOURCE_NAME="crDroid"
+              SOURCE_SLUG="crdroid"
+              ;;
+            "OnePlus12R-development")
+              SOURCE_NAME="OnePlus 12R development"
+              SOURCE_SLUG="oneplus12r-dev"
+              ;;
+          esac
+
+          case "${{ inputs.clang_choice }}" in
+            "Recommended (auto-select based on branch)")
+              CLANG_VERSION=""
+              ;;
+            "clang-r563880c (Android 16 / LineageOS 23.2+ era)")
+              CLANG_VERSION="clang-r563880c"
+              ;;
+            "clang-r547379 (Android 16 / LineageOS 23.0 era)")
+              CLANG_VERSION="clang-r547379"
+              ;;
+            "clang-r536225 (Android 15 / LineageOS 22.2 era)")
+              CLANG_VERSION="clang-r536225"
+              ;;
+            "clang-r487747c (Android 14 / LineageOS 21 era)")
+              CLANG_VERSION="clang-r487747c"
+              ;;
+            "clang-r450784d (Android 13 / LineageOS 20 era)")
+              CLANG_VERSION="clang-r450784d"
+              ;;
+            "clang-r416183b1 (Android 12 / LineageOS 19.1 era)")
+              CLANG_VERSION="clang-r416183b1"
+              ;;
+            *)
+              echo "::error::Unknown clang choice: ${{ inputs.clang_choice }}"
+              exit 1
+              ;;
+          esac
+
+          KSU_TYPE="${{ matrix.ksu_type }}"
+
+          SUSFS_REF=""
+          SUSFS_PATCH_FILE=""
+
+          if [[ "$SOURCE_LAYOUT" == "oneplus-official" ]]; then
+            KERNEL_REPO="https://github.com/${KERNEL_SOURCE}/android_kernel_oneplus_${SOC}.git"
+            MODULES_REPO="https://github.com/${KERNEL_SOURCE}/android_kernel_modules_and_devicetree_oneplus_${SOC}.git"
+            KERNEL_CLONE_DIR="${SOC}-modules/kernel_platform/msm-kernel"
+            MODULES_CLONE_DIR="${SOC}-modules"
           else
-             echo "Applying standard selected root patches..."
+            KERNEL_REPO="https://github.com/${KERNEL_SOURCE}/android_kernel_oneplus_${SOC}.git"
+            MODULES_REPO="https://github.com/${KERNEL_SOURCE}/android_kernel_oneplus_${SOC}-modules.git"
+            KERNEL_CLONE_DIR="${SOC}"
+            MODULES_CLONE_DIR="${SOC}-modules"
           fi
-          
-      - name: Build Kernel Placeholder
-        run: |
-          echo "Starting the build process..."
 
-      - name: Package Output (AnyKernel3)
+          if [[ "${{ inputs.branch_mode }}" == "Use the recommended branch automatically" ]]; then
+            KERNEL_BRANCH="$(git ls-remote --symref "$KERNEL_REPO" HEAD | awk '/^ref:/ {sub("refs/heads/","",$2); print $2; exit}')"
+
+            if [[ -z "$KERNEL_BRANCH" ]]; then
+              echo "::error::Could not detect the default branch from $KERNEL_REPO"
+              exit 1
+            fi
+          else
+            KERNEL_BRANCH="${{ inputs.kernel_branch }}"
+
+            if [[ -z "$KERNEL_BRANCH" ]]; then
+              echo "::error::Please type a branch name when using manual branch mode."
+              exit 1
+            fi
+          fi
+
+          if [[ -z "$CLANG_VERSION" ]]; then
+            case "$KERNEL_BRANCH" in
+              lineage-19.1*|oneplus/*_s_12.1*|oneplus/*_s_12.0*)
+                CLANG_VERSION="clang-r416183b1"
+                ;;
+              lineage-20*|thirteen*|oneplus/*_t_13*|oneplus_*_t_13*)
+                CLANG_VERSION="clang-r450784d"
+                ;;
+              lineage-21*|fourteen*|oneplus/*_u_14*|oneplus_*_u_14*)
+                CLANG_VERSION="clang-r487747c"
+                ;;
+              lineage-22*|fifteen*|oneplus/*_v_15*|oneplus_*_v_15*)
+                CLANG_VERSION="clang-r536225"
+                ;;
+              lineage-23.0*)
+                CLANG_VERSION="clang-r547379"
+                ;;
+              16.0|lineage-23*|oneplus/*_b_16*|oneplus_*_b_16*)
+                CLANG_VERSION="clang-r563880c"
+                ;;
+              *)
+                CLANG_VERSION="clang-r563880c"
+                echo "::warning::Could not confidently infer the best clang version for branch '$KERNEL_BRANCH'. Falling back to $CLANG_VERSION."
+                ;;
+            esac
+          fi
+
+          if [[ "$KSU_TYPE" == *susfs* ]]; then
+            case "$SOC" in
+              sm8450)
+                SUSFS_REF="gki-android13-5.10"
+                ;;
+              sm8550)
+                case "$KERNEL_BRANCH" in
+                  lineage-20*|thirteen*|android13*|13.*|oneplus/*_t_13*|oneplus_*_t_13*)
+                    SUSFS_REF="gki-android13-5.15"
+                    ;;
+                  lineage-21*|lineage-22*|lineage-23*|fourteen*|fifteen*|sixteen*|android14*|android15*|android16*|14.*|15.*|16.*|oneplus/*_u_14*|oneplus/*_v_15*|oneplus/*_b_16*|oneplus_*_u_14*|oneplus_*_v_15*|oneplus_*_b_16*)
+                    SUSFS_REF="gki-android14-5.15"
+                    ;;
+                  *)
+                    SUSFS_REF="gki-android14-5.15"
+                    echo "::warning::Could not confidently infer the best SM8550 susfs branch for '$KERNEL_BRANCH'. Falling back to $SUSFS_REF."
+                    ;;
+                esac
+                ;;
+              sm8650)
+                SUSFS_REF="gki-android14-6.1"
+                ;;
+              *)
+                echo "::error::No susfs mapping is configured for platform $SOC"
+                exit 1
+                ;;
+            esac
+
+            SUSFS_PATCH_FILE="50_add_susfs_in_${SUSFS_REF}.patch"
+          fi
+
+          if ! git ls-remote --exit-code --heads "$KERNEL_REPO" "$KERNEL_BRANCH" >/dev/null 2>&1; then
+            echo "::error::Branch '$KERNEL_BRANCH' was not found in $KERNEL_REPO"
+            exit 1
+          fi
+
+          if ! git ls-remote --exit-code --heads "$MODULES_REPO" "$KERNEL_BRANCH" >/dev/null 2>&1; then
+            echo "::error::Branch '$KERNEL_BRANCH' was not found in $MODULES_REPO"
+            echo "::error::This workflow requires the matching modules repository for defconfig/Kconfig resolution."
+            exit 1
+          fi
+
+          case "$KERNEL_SOURCE" in
+            OnePlusOSS)
+              if [[ ! "$KERNEL_BRANCH" =~ ^oneplus/ ]] && [[ ! "$KERNEL_BRANCH" =~ ^oneplus_ ]]; then
+                echo "::warning::This source usually uses oneplus/* branches, but '$KERNEL_BRANCH' was selected."
+              fi
+              ;;
+            LineageOS|OnePlus12R-development|lineage-ovaltine-dev)
+              if [[ ! "$KERNEL_BRANCH" =~ ^lineage- ]]; then
+                echo "::warning::This source usually uses lineage-* branches, but '$KERNEL_BRANCH' was selected."
+              fi
+              ;;
+            crdroidandroid)
+              echo "Note: crDroid branch naming may differ from LineageOS."
+              ;;
+          esac
+
+          {
+            echo "SOC=$SOC"
+            echo "PLATFORM_SLUG=$PLATFORM_SLUG"
+            echo "PLATFORM_NAME=$PLATFORM_NAME"
+            echo "BUILD_CONFIGS=$BUILD_CONFIGS"
+            echo "SOURCE_LAYOUT=$SOURCE_LAYOUT"
+            echo "KERNEL_SOURCE=$KERNEL_SOURCE"
+            echo "SOURCE_NAME=$SOURCE_NAME"
+            echo "SOURCE_SLUG=$SOURCE_SLUG"
+            echo "KERNEL_REPO=$KERNEL_REPO"
+            echo "MODULES_REPO=$MODULES_REPO"
+            echo "KERNEL_CLONE_DIR=$KERNEL_CLONE_DIR"
+            echo "MODULES_CLONE_DIR=$MODULES_CLONE_DIR"
+            echo "OFFICIAL_BUILD_TARGET=$OFFICIAL_BUILD_TARGET"
+            echo "OFFICIAL_GKI_FRAGMENT=$OFFICIAL_GKI_FRAGMENT"
+            echo "KERNEL_BRANCH=$KERNEL_BRANCH"
+            echo "CLANG_VERSION=$CLANG_VERSION"
+            echo "KSU_TYPE=$KSU_TYPE"
+            echo "SUSFS_REF=$SUSFS_REF"
+            echo "SUSFS_PATCH_FILE=$SUSFS_PATCH_FILE"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "soc=$SOC"
+            echo "platform_slug=$PLATFORM_SLUG"
+            echo "platform_name=$PLATFORM_NAME"
+            echo "kernel_source=$KERNEL_SOURCE"
+            echo "source_name=$SOURCE_NAME"
+            echo "source_slug=$SOURCE_SLUG"
+            echo "source_layout=$SOURCE_LAYOUT"
+            echo "kernel_branch=$KERNEL_BRANCH"
+            echo "clang_version=$CLANG_VERSION"
+            echo "ksu_type=$KSU_TYPE"
+            echo "susfs_ref=$SUSFS_REF"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Build profile"
+            echo "- Platform: $PLATFORM_NAME ($SOC)"
+            echo "- Source: $SOURCE_NAME"
+            echo "- Branch: $KERNEL_BRANCH"
+            echo "- Clang: $CLANG_VERSION"
+            echo "- Root solution: $KSU_TYPE"
+            if [[ -n "$SUSFS_REF" ]]; then
+              echo "- susfs branch: $SUSFS_REF"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set build metadata
         run: |
-          echo "Packaging zip..."
-          
+          set -euo pipefail
+          SAFE_KERNEL_BRANCH="$KERNEL_BRANCH"
+          SAFE_KERNEL_BRANCH="${SAFE_KERNEL_BRANCH//\//-}"
+          echo "BUILD_TIMESTAMP=$(date -u +'%Y%m%d_%H%M')" >> "$GITHUB_ENV"
+          echo "SAFE_KERNEL_BRANCH=${SAFE_KERNEL_BRANCH}" >> "$GITHUB_ENV"
+          echo "CCACHE_PREFIX=${{ runner.os }}-ccache-${SOC}-${SOURCE_SLUG}-${SAFE_KERNEL_BRANCH}-${CLANG_VERSION}" >> "$GITHUB_ENV"
+          echo "CCACHE_KEY=${{ runner.os }}-ccache-${SOC}-${SOURCE_SLUG}-${SAFE_KERNEL_BRANCH}-${CLANG_VERSION}-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+
+      - name: Restore AOSP Clang cache
+        id: clang-cache
+        uses: actions/cache@v4
+        with:
+          path: toolchains/${{ steps.resolve.outputs.clang_version }}
+          key: ${{ runner.os }}-aosp-clang-${{ steps.resolve.outputs.clang_version }}
+
+      - name: Restore ccache
+        id: ccache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ${{ env.CCACHE_KEY }}
+          restore-keys: |
+            ${{ env.CCACHE_PREFIX }}-
+            ${{ runner.os }}-ccache-${{ steps.resolve.outputs.soc }}-${{ steps.resolve.outputs.source_slug }}-
+            ${{ runner.os }}-ccache-${{ steps.resolve.outputs.soc }}-
+
+      - name: Clone Kernel Source
+        run: |
+          set -euo pipefail
+
+          echo "Cloning modules repo: $MODULES_REPO"
+          git clone --depth=1 --single-branch --no-tags -b "$KERNEL_BRANCH" "$MODULES_REPO" "$MODULES_CLONE_DIR" || {
+            echo "::error::Failed to clone modules repo for branch '$KERNEL_BRANCH': $MODULES_REPO"
+            echo "::error::This workflow requires the matching modules repository for defconfig/Kconfig resolution."
+            exit 1
+          }
+
+          echo "Cloning kernel repo: $KERNEL_REPO"
+          mkdir -p "$(dirname "$KERNEL_CLONE_DIR")"
+          git clone --depth=1 --single-branch --no-tags -b "$KERNEL_BRANCH" "$KERNEL
