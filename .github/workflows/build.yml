@@ -35,8 +35,9 @@ on:
         description: Only used in manual mode
         required: true
         type: choice
-        default: "fourteen"
+        default: "alpha-16.2"
         options:
+          - "alpha-16.2"
           - "fourteen"
           - "16.0"
           - "15.0"
@@ -107,7 +108,7 @@ on:
         description: Custom Kernel Modules Branch
         required: false
         type: string
-        default: fourteen
+        default: alpha-16.2
 
 permissions:
   contents: read
