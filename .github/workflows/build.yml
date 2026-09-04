@@ -9,7 +9,7 @@ on:
         description: Device and upstream source preset
         required: true
         type: choice
-        default: SM8550 | OnePlus 11 / 12R | LineageOS (recommended)
+        default: SM8550 | OnePlus 11 / 12R | AlphaDroid (https://github.com/alphadroid-devices/?q=oneplus_sm8550&type=all&language=&sort=)
         options:
           - SM7550 | OnePlus Nord CE4 | development
           - SM8450 | OnePlus 10 Pro | OnePlus official
@@ -18,6 +18,7 @@ on:
           - SM8550 | OnePlus 11 | LunarisOS
           - SM8550 | OnePlus 11 / 12R | LineageOS (recommended)
           - SM8550 | OnePlus 11 / 12R | crDroid
+          - SM8550 | OnePlus 11 / 12R | AlphaDroid (https://github.com/alphadroid-devices/?q=oneplus_sm8550&type=all&language=&sort=)
           - SM8550 | OnePlus 12R | development
           - SM8650 | OnePlus 12 | OnePlus official
           - SM8650 | OnePlus 12 | LineageOS (recommended)
@@ -423,3 +424,4 @@ jobs:
           set -euo pipefail
           gh api "repos/${GH_REPO}/git/refs/tags/${RELEASE_TAG}" --method DELETE
           echo "[release] Removed unused tag ${RELEASE_TAG}."
+          
