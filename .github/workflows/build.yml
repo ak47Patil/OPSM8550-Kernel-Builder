@@ -9,7 +9,7 @@ on:
         description: Device and upstream source preset
         required: true
         type: choice
-        default: SM8550 | OnePlus 11 / 12R | AlphaDroid (https://github.com/alphadroid-devices/?q=oneplus_sm8550&type=all&language=&sort=)
+        default: SM8550 | OnePlus 11 / 12R | AlphaDroid
         options:
           - SM7550 | OnePlus Nord CE4 | development
           - SM8450 | OnePlus 10 Pro | OnePlus official
@@ -18,7 +18,7 @@ on:
           - SM8550 | OnePlus 11 | LunarisOS
           - SM8550 | OnePlus 11 / 12R | LineageOS (recommended)
           - SM8550 | OnePlus 11 / 12R | crDroid
-          - SM8550 | OnePlus 11 / 12R | AlphaDroid (https://github.com/alphadroid-devices/?q=oneplus_sm8550&type=all&language=&sort=)
+          - SM8550 | OnePlus 11 / 12R | AlphaDroid
           - SM8550 | OnePlus 12R | development
           - SM8650 | OnePlus 12 | OnePlus official
           - SM8650 | OnePlus 12 | LineageOS (recommended)
@@ -35,8 +35,9 @@ on:
         description: Only used in manual mode
         required: true
         type: choice
-        default: "16.0"
+        default: "fourteen"
         options:
+          - "fourteen"
           - "16.0"
           - "15.0"
           - "14.0"
@@ -97,6 +98,16 @@ on:
           - Patch/config validation only
           - Full build (artifact only)
           - Full build and publish release
+      custom_modules_repo:
+        description: Custom Kernel Modules Repo URL
+        required: false
+        type: string
+        default: https://github.com/alphadroid-devices/android_kernel_oneplus_sm8550-modules
+      custom_modules_branch:
+        description: Custom Kernel Modules Branch
+        required: false
+        type: string
+        default: fourteen
 
 permissions:
   contents: read
@@ -171,6 +182,8 @@ jobs:
           INPUT_CLANG_CHOICE: ${{ inputs.clang_choice }}
           INPUT_ROOT_SOLUTION: ${{ inputs.root_solution }}
           INPUT_BUILD_MODE: ${{ inputs.build_mode }}
+          INPUT_CUSTOM_MODULES_REPO: ${{ inputs.custom_modules_repo }}
+          INPUT_CUSTOM_MODULES_BRANCH: ${{ inputs.custom_modules_branch }}
         run: bash scripts/resolve-profile.sh
 
       - name: Set build metadata
