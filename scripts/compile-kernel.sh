@@ -151,12 +151,12 @@ BUILD_PHASE="config generation"
 apply_variant_configs arch/arm64/configs/gki_defconfig
 make "${MAKE_ARGS[@]}" gki_defconfig "${ACTIVE_CONFIG_ARRAY[@]}"
 
-# Fix for module loading unknown symbols & KASAN status mismatch
+# Module symbol export and KASAN environment fix (Lunaris OS compatibility)
 scripts/config --file out/.config --disable CONFIG_TRIM_UNUSED_KSYMS
 scripts/config --file out/.config --enable CONFIG_KALLSYMS
 scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
-scripts/config --file out/.config --disable CONFIG_KASAN
-scripts/config --file out/.config --disable CONFIG_KASAN_INLINE
+scripts/config --file out/.config --enable CONFIG_KASAN
+scripts/config --file out/.config --enable CONFIG_KASAN_INLINE
 
 apply_variant_configs out/.config
 make "${MAKE_ARGS[@]}" olddefconfig
