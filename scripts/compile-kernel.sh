@@ -88,9 +88,6 @@ KBUILD_BUILD_TIMESTAMP="$(date -u -d "@${SOURCE_DATE_EPOCH}" '+%Y-%m-%d %H:%M:%S
 export KBUILD_BUILD_USER=opskernel
 export KBUILD_BUILD_HOST=github-actions
 
-# Command-line assignments take precedence over Kbuild's own CC/HOSTCC values.
-# Exporting CC alone is not sufficient when LLVM=1 because the kernel Makefile
-# assigns CC=clang internally.
 MAKE_ARGS=(
   O=out
   LLVM=1
@@ -151,10 +148,11 @@ BUILD_PHASE="config generation"
 apply_variant_configs arch/arm64/configs/gki_defconfig
 make "${MAKE_ARGS[@]}" gki_defconfig "${ACTIVE_CONFIG_ARRAY[@]}"
 
-# Module symbol export and KASAN environment fix (Lunaris OS compatibility)
+# KASAN and KALLSYMS configs for RTModule compatibility
 scripts/config --file out/.config --disable CONFIG_TRIM_UNUSED_KSYMS
 scripts/config --file out/.config --enable CONFIG_KALLSYMS
 scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
+scripts/config --file out/.config --enable CONFIG_FRAME_POINTER
 scripts/config --file out/.config --enable CONFIG_KASAN
 scripts/config --file out/.config --enable CONFIG_KASAN_INLINE
 
