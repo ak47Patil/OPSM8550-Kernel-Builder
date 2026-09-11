@@ -367,11 +367,12 @@ jobs:
           : > "$NOTES_FILE"
 
           package_count=0
+          PREFIX="kernel-package-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-"
           for package_dir in "$PACKAGE_ROOT"/kernel-package-*; do
             [[ -d "$package_dir" ]] || continue
             package_count=$((package_count + 1))
             artifact_name="$(basename "$package_dir")"
-            root_type="${artifact_name#kernel-package-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-}"
+            root_type="${artifact_name#"$PREFIX"}"
             (
               cd "$package_dir"
               sha256sum --check SHA256SUMS
@@ -453,3 +454,4 @@ jobs:
           set -euo pipefail
           gh api "repos/${GH_REPO}/git/refs/tags/${RELEASE_TAG}" --method DELETE
           echo "[release] Removed unused tag ${RELEASE_TAG}."
+          
