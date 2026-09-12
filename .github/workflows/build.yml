@@ -98,6 +98,16 @@ on:
           - Patch/config validation only
           - Full build (artifact only)
           - Full build and publish release
+      custom_modules_repo:
+        description: Custom Kernel Modules Repo URL
+        required: true
+        type: string
+        default: 'https://github.com/AlphaDroid-devices/kernel_oneplus_sm8550-modules'
+      custom_modules_branch:
+        description: Custom Kernel Modules Branch
+        required: true
+        type: string
+        default: 'main'
 
 permissions:
   contents: read
@@ -157,6 +167,8 @@ jobs:
 
     env:
       DEBIAN_FRONTEND: noninteractive
+      CUSTOM_MODULES_REPO: ${{ inputs.custom_modules_repo }}
+      CUSTOM_MODULES_BRANCH: ${{ inputs.custom_modules_branch }}
 
     steps:
       - name: Checkout pipeline
