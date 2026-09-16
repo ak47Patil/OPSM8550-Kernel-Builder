@@ -19,6 +19,7 @@ on:
           - SM8550 | OnePlus 11 | LunarisOS
           - SM8550 | OnePlus 11 / 12R | LineageOS (recommended)
           - SM8550 | OnePlus 11 / 12R | crDroid
+          - SM8550 | OnePlus 12R | Custom Modules (Lunaris Branch)
           - SM8550 | OnePlus 12R | development
           - SM8650 | OnePlus 12 | OnePlus official
           - SM8650 | OnePlus 12 | LineageOS (recommended)
@@ -35,8 +36,9 @@ on:
         description: Only used in manual mode
         required: true
         type: choice
-        default: "16.0"
+        default: "lunaris"
         options:
+          - "lunaris"
           - "16.0"
           - "15.0"
           - "14.0"
@@ -57,6 +59,16 @@ on:
           - oneplus/sm8550_b_16.0.0_oneplus_11
           - oneplus/sm8550_b_16.0.0_oneplus_12r
           - oneplus/sm8650_b_16.0.0_oneplus12
+      custom_module_repo:
+        description: Custom modules repository URL
+        required: false
+        type: string
+        default: "https://github.com/gaurav-paul9/android_kernel_oneplus_sm8550-modules"
+      custom_module_branch:
+        description: Custom modules repository branch
+        required: false
+        type: string
+        default: "lunaris"
       clang_choice:
         description: Compiler preset; auto is safest for normal builds
         required: true
@@ -232,6 +244,17 @@ jobs:
 
       - name: Clone kernel source
         run: bash scripts/clone-sources.sh
+
+      - name: Clone custom modules repo
+        env:
+          MODULES_REPO: ${{ inputs.custom_module_repo }}
+          MODULES_BRANCH: ${{ inputs.custom_module_branch }}
+        run: |
+          set -euo pipefail
+          if [ -n "$MODULES_REPO" ]; then
+            echo "[modules] Cloning ${MODULES_REPO} (branch: ${MODULES_BRANCH})..."
+            git clone --depth 1 -b "$MODULES_BRANCH" "$MODULES_REPO" custom_modules || true
+          fi
 
       - name: Download AOSP Clang
         if: inputs.build_mode != 'Patch/config validation only' && steps.clang-cache.outputs.cache-hit != 'true'
@@ -460,3 +483,4 @@ jobs:
           set -euo pipefail
           gh api "repos/${GH_REPO}/git/refs/tags/${RELEASE_TAG}" --method DELETE
           echo "[release] Removed unused tag ${RELEASE_TAG}."
+          
