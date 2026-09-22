@@ -29,6 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${ANYKERNEL_COMMIT:?}"
 
 SUPPORTED_ANDROID_VERSIONS="${SUPPORTED_ANDROID_VERSIONS:-}"
+KERNEL_MAKE_FLAGS="${KERNEL_MAKE_FLAGS:-}"
 KSU_COMMIT="${KSU_COMMIT:-}"
 KSU_REPO="${KSU_REPO:-}"
 KSU_REF="${KSU_REF:-}"
@@ -46,6 +47,11 @@ GITHUB_SERVER_URL="${GITHUB_SERVER_URL:-https://github.com}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-local/OPSM8550-Kernel-Builder}"
 GITHUB_RUN_ID="${GITHUB_RUN_ID:-local}"
 GITHUB_SHA="${GITHUB_SHA:-local}"
+MAGISK_TOOLS_VERSION="${MAGISK_TOOLS_VERSION:-30.7}"
+MAGISK_APK_URL="${MAGISK_APK_URL:-https://github.com/topjohnwu/Magisk/releases/download/v30.7/Magisk-v30.7.apk}"
+MAGISK_APK_SHA256="${MAGISK_APK_SHA256:-e0d32d2123532860f97123d927b1bb86c4e08e6fd8a48bfc6b5bee0afae9ebd5}"
+MAGISKBOOT_ARM64_SHA256="${MAGISKBOOT_ARM64_SHA256:-d7440e2cd89899426e809554bf793baef9804ccbe5a52ce34a8b6242725d3c77}"
+MAGISK_APK_PATH="${MAGISK_APK_PATH:-}"
 
 SHORT_KERNEL_COMMIT="${KERNEL_COMMIT:0:12}"
 ZIP_NAME="${PROFILE_ID}_${KSU_TYPE}_${SHORT_KERNEL_COMMIT}_${BUILD_TIMESTAMP}"
@@ -97,15 +103,27 @@ configure_anykernel_properties \
   "$DEVICE_NAMES" \
   "$SUPPORTED_ANDROID_VERSIONS"
 add_anykernel_devicecheck_diagnostics "$ANYKERNEL_UPDATE_BINARY"
+patch_anykernel_app_flash_staging "$ANYKERNEL_UPDATE_BINARY"
 
 if [[ "$KPM_ENABLED" == true ]]; then
   KSU_CHECKOUT_NAME="$(basename "${KSU_REPO%.git}")"
   KSU_ARM64_BUSYBOX="${SOC}/${KSU_CHECKOUT_NAME}/userspace/ksud/bin/aarch64/busybox"
   install_anykernel_arm64_busybox "$KSU_ARM64_BUSYBOX" "AnyKernel3/tools/busybox"
+  install_anykernel_arm64_magiskboot \
+    "$MAGISK_APK_URL" \
+    "$MAGISK_APK_SHA256" \
+    "$MAGISKBOOT_ARM64_SHA256" \
+    "AnyKernel3/tools/magiskboot" \
+    "$MAGISK_APK_PATH"
+  prepare_anykernel_arm64_toolset "AnyKernel3/tools"
   ANYKERNEL_BUSYBOX_ABI="arm64"
 fi
 ANYKERNEL_BUSYBOX_SHA256="$(sha256sum AnyKernel3/tools/busybox | awk '{print $1}')"
-add_anykernel_preflight_diagnostics "$ANYKERNEL_UPDATE_BINARY" "$ANYKERNEL_BUSYBOX_ABI"
+ANYKERNEL_MAGISKBOOT_SHA256="$(sha256sum AnyKernel3/tools/magiskboot | awk '{print $1}')"
+add_anykernel_preflight_diagnostics \
+  "$ANYKERNEL_UPDATE_BINARY" \
+  "$ANYKERNEL_BUSYBOX_ABI" \
+  "$KPM_ENABLED"
 
 rm -rf "$ASSET_DIR"
 mkdir -p "$ASSET_DIR"
@@ -123,6 +141,7 @@ jq -n \
   --arg kernel_commit "$KERNEL_COMMIT" \
   --arg modules_commit "$MODULES_COMMIT" \
   --arg clang "$CLANG_VERSION" \
+  --arg kernel_make_flags "$KERNEL_MAKE_FLAGS" \
   --arg root_solution "$KSU_TYPE" \
   --argjson kpm_enabled "$KPM_ENABLED" \
   --arg ksu_repo "$KSU_REPO" \
@@ -141,6 +160,8 @@ jq -n \
   --arg anykernel_commit "$ANYKERNEL_COMMIT" \
   --arg anykernel_busybox_abi "$ANYKERNEL_BUSYBOX_ABI" \
   --arg anykernel_busybox_sha256 "$ANYKERNEL_BUSYBOX_SHA256" \
+  --arg anykernel_magiskboot_version "$MAGISK_TOOLS_VERSION" \
+  --arg anykernel_magiskboot_sha256 "$ANYKERNEL_MAGISKBOOT_SHA256" \
   --arg builder_commit "$GITHUB_SHA" \
   --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
   --arg built_at "$BUILD_TIMESTAMP" \
@@ -157,6 +178,7 @@ jq -n \
     kernel_commit: $kernel_commit,
     modules_commit: $modules_commit,
     clang: $clang,
+    device_kernel_make_flags: ($kernel_make_flags | split(" ") | map(select(length > 0))),
     root_solution: $root_solution,
     kpm_enabled: $kpm_enabled,
     kernelsu_repository: $ksu_repo,
@@ -175,6 +197,8 @@ jq -n \
     anykernel_commit: $anykernel_commit,
     anykernel_busybox_abi: $anykernel_busybox_abi,
     anykernel_busybox_sha256: $anykernel_busybox_sha256,
+    anykernel_magiskboot_version: $anykernel_magiskboot_version,
+    anykernel_magiskboot_sha256: $anykernel_magiskboot_sha256,
     builder_commit: $builder_commit,
     workflow_run: $run_url,
     built_at_utc: $built_at
@@ -217,6 +241,7 @@ cat > "$ASSET_DIR/release-notes.md" <<EOF_NOTES
 - Modules branch: ${MODULES_BRANCH}
 - Modules commit: \`${MODULES_COMMIT}\`
 - Clang: ${CLANG_VERSION}
+- Device kernel make flags: ${KERNEL_MAKE_FLAGS:-none}
 - Root solution: ${KSU_TYPE}
 - KernelSU source: ${KSU_REPO:-disabled} (${KSU_REF:-none}, ${KSU_COMMIT:-none})
 - KPM: ${KPM_ENABLED}
@@ -224,9 +249,12 @@ cat > "$ASSET_DIR/release-notes.md" <<EOF_NOTES
 - NoMount: ${NOMOUNT_NOTE}
 - ZeroMount: ${ZEROMOUNT_NOTE}
 - AnyKernel BusyBox: ${ANYKERNEL_BUSYBOX_ABI} (sha256:${ANYKERNEL_BUSYBOX_SHA256})
+- AnyKernel MagiskBoot: v${MAGISK_TOOLS_VERSION} (sha256:${ANYKERNEL_MAGISKBOOT_SHA256})
 
 The flashable ZIP performs a device-codename check before modifying the boot partition.
 Only flash it on the listed target devices, and keep a known-good stock boot image available.
+This package replaces only the kernel Image; it does not replace the ROM's vendor_dlkm modules.
+Use it only with a ROM build whose vendor modules match the source, branch, and device flags above.
 See \`build-info.json\` and \`SHA256SUMS\` for provenance and integrity data.
 EOF_NOTES
 

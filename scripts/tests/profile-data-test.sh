@@ -98,9 +98,15 @@ grep -Fq 'sanitize_cached_anykernel_checkout AnyKernel3' "$ANYKERNEL_PACKAGE_SCR
   || fail "AnyKernel packaging must sanitize a restored checkout"
 grep -Fq 'install_anykernel_template "$ANYKERNEL_TEMPLATE" "$ANYKERNEL_SCRIPT"' "$ANYKERNEL_PACKAGE_SCRIPT" \
   || fail "AnyKernel packaging must install the device-specific flash template"
+grep -Fq 'patch_anykernel_app_flash_staging "$ANYKERNEL_UPDATE_BINARY"' "$ANYKERNEL_PACKAGE_SCRIPT" \
+  || fail "AnyKernel packaging must move app-triggered flashes out of app-private data"
 grep -Fq 'install_anykernel_arm64_busybox "$KSU_ARM64_BUSYBOX" "AnyKernel3/tools/busybox"' "$ANYKERNEL_PACKAGE_SCRIPT" \
   || fail "KPM packaging must replace AnyKernel's legacy ARM BusyBox"
-grep -Fq 'add_anykernel_preflight_diagnostics "$ANYKERNEL_UPDATE_BINARY" "$ANYKERNEL_BUSYBOX_ABI"' "$ANYKERNEL_PACKAGE_SCRIPT" \
+grep -Fq 'install_anykernel_arm64_magiskboot \' "$ANYKERNEL_PACKAGE_SCRIPT" \
+  || fail "KPM packaging must replace AnyKernel's legacy ARM MagiskBoot"
+grep -Fq 'prepare_anykernel_arm64_toolset "AnyKernel3/tools"' "$ANYKERNEL_PACKAGE_SCRIPT" \
+  || fail "KPM packaging must reject remaining non-AArch64 runtime tools"
+grep -Fq 'add_anykernel_preflight_diagnostics \' "$ANYKERNEL_PACKAGE_SCRIPT" \
   || fail "AnyKernel packaging must report the device and BusyBox ABIs"
 grep -Fq 'git checkout -q --force --detach FETCH_HEAD' "$ANYKERNEL_PACKAGE_SCRIPT" \
   || fail "AnyKernel packaging must force the pinned detached checkout"
@@ -141,6 +147,17 @@ assert_eq "crdroidandroid" "$KERNEL_SOURCE" "Nord CE4 crDroid kernel source"
 assert_eq "sm8550" "$UPSTREAM_SOC" "Nord CE4 crDroid upstream repository SoC"
 assert_eq "CONFIG_OPLUS_DEVICE_DTBS=y CONFIG_BENZ_DTB=y" "$KERNEL_MAKE_FLAGS" "Nord CE4 crDroid make flags"
 
+resolve_build_profile "SM8650 | OnePlus 12 | LineageOS (recommended)"
+assert_eq "CONFIG_OPLUS_DEVICE_DTBS=y CONFIG_WAFFLE_DTB=y" "$KERNEL_MAKE_FLAGS" "OnePlus 12 LineageOS make flags"
+resolve_build_profile "SM8650 | OnePlus 12 | crDroid"
+assert_eq "CONFIG_OPLUS_DEVICE_DTBS=y CONFIG_WAFFLE_DTB=y" "$KERNEL_MAKE_FLAGS" "OnePlus 12 crDroid make flags"
+grep -Fq 'device_kernel_make_flags: ($kernel_make_flags | split(" ") | map(select(length > 0)))' "$ANYKERNEL_PACKAGE_SCRIPT" \
+  || fail "build provenance does not record device kernel make flags"
+grep -Fq "out/Module.symvers" "$WORKFLOW_FILE" \
+  || fail "diagnostics do not retain the kernel module CRC table"
+grep -Fq "it does not replace the ROM's vendor_dlkm modules" "$ANYKERNEL_PACKAGE_SCRIPT" \
+  || fail "release notes do not warn about the retained ROM vendor modules"
+
 resolve_build_profile "SM8550 | OnePlus 11 | LunarisOS"
 assert_eq "https://github.com/osm1019/kernel_oneplus_sm8550.git" "$KERNEL_REPO_OVERRIDE" "LunarisOS kernel repository"
 assert_eq "https://github.com/osm1019/android_kernel_oneplus_sm8550-modules.git" "$MODULES_REPO_OVERRIDE" "LunarisOS modules repository"
@@ -151,6 +168,8 @@ resolve_root_solution "ReSukiSU + susfs"
 assert_eq "ReSukiSU-with-susfs" "$KSU_TYPE" "root mapping"
 resolve_root_solution "KernelSU-Next + SUSFS"
 assert_eq "KernelSU-Next-with-susfs" "$KSU_TYPE" "KernelSU-Next SUSFS root mapping"
+resolve_root_solution "KernelSU-Next + SUSFS + NoMount (experimental)"
+assert_eq "KernelSU-Next-with-susfs-nomount" "$KSU_TYPE" "KernelSU-Next NoMount root mapping"
 resolve_root_solution "KernelSU-Next + SUSFS + ZeroMount (experimental)"
 assert_eq "KernelSU-Next-with-susfs-zeromount" "$KSU_TYPE" "KernelSU-Next ZeroMount root mapping"
 resolve_root_solution "ReSukiSU + SUSFS + NoMount (experimental)"
@@ -169,14 +188,16 @@ grep -Fq -- '- ReSukiSU + SUSFS + NoMount (experimental)' "$WORKFLOW_FILE" \
   || fail "workflow is missing the NoMount root option"
 grep -Fq -- '- KernelSU-Next + SUSFS' "$WORKFLOW_FILE" \
   || fail "workflow is missing the KernelSU-Next SUSFS root option"
+grep -Fq -- '- KernelSU-Next + SUSFS + NoMount (experimental)' "$WORKFLOW_FILE" \
+  || fail "workflow is missing the KernelSU-Next NoMount root option"
 grep -Fq -- '- Build all 3 featured SUSFS variants (batch)' "$WORKFLOW_FILE" \
   || fail "workflow is missing the three-variant batch root option"
 grep -Fq -- '- Build all 3 ZeroMount variants (batch)' "$WORKFLOW_FILE" \
   || fail "workflow is missing the three-variant ZeroMount batch option"
 grep -Fq 'name: Build ${{ matrix.root_solution }}' "$WORKFLOW_FILE" \
   || fail "workflow build job does not use the root-solution matrix"
-grep -Fq '"SukiSU Ultra + SUSFS + NoMount + KPM (experimental)","ReSukiSU + SUSFS + NoMount (experimental)","KernelSU-Next + SUSFS"' "$WORKFLOW_FILE" \
-  || fail "workflow original batch matrix changed unexpectedly"
+grep -Fq '"SukiSU Ultra + SUSFS + NoMount + KPM (experimental)","ReSukiSU + SUSFS + NoMount (experimental)","KernelSU-Next + SUSFS + NoMount (experimental)"' "$WORKFLOW_FILE" \
+  || fail "workflow featured SUSFS batch matrix does not contain all three NoMount variants"
 grep -Fq '"SukiSU Ultra + SUSFS + ZeroMount + KPM (experimental)","ReSukiSU + SUSFS + ZeroMount (experimental)","KernelSU-Next + SUSFS + ZeroMount (experimental)"' "$WORKFLOW_FILE" \
   || fail "workflow batch matrix does not contain the three ZeroMount variants"
 grep -Fq 'ARTIFACT_NAME="kernel-package-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${KSU_TYPE}"' "$WORKFLOW_FILE" \
@@ -185,6 +206,10 @@ grep -Fq 'KSU_REPO="https://github.com/pershoot/KernelSU-Next.git"' "$RESOLVER_S
   || fail "KernelSU-Next SUSFS must resolve the compatible dev-susfs fork"
 grep -Fq 'KSU_REF="dev-susfs"' "$RESOLVER_SCRIPT" \
   || fail "KernelSU-Next SUSFS must resolve the dev-susfs branch"
+grep -Fq 'KernelSU-Next-with-susfs|KernelSU-Next-with-susfs-nomount|KernelSU-Next-with-susfs-zeromount)' "$RESOLVER_SCRIPT" \
+  || fail "resolver does not route the KernelSU-Next NoMount preset to the SUSFS-compatible fork"
+grep -Fq '"KernelSU-Next-with-susfs"|"KernelSU-Next-with-susfs-nomount"|"KernelSU-Next-with-susfs-zeromount")' "$KSU_SETUP_SCRIPT" \
+  || fail "KernelSU setup does not install the SUSFS-compatible fork for the NoMount preset"
 grep -Fq -- '- SukiSU Ultra + KPM (experimental)' "$WORKFLOW_FILE" \
   || fail "workflow is missing the KPM root option"
 grep -Fq -- '- SukiSU Ultra + SUSFS + KPM (experimental)' "$WORKFLOW_FILE" \
@@ -193,6 +218,8 @@ grep -Fq -- '- SukiSU Ultra + SUSFS + NoMount + KPM (experimental)' "$WORKFLOW_F
   || fail "workflow is missing the combined SukiSU SUSFS/NoMount/KPM root option"
 grep -Fq -- '- SukiSU Ultra + SUSFS + NoMount + KPM (experimental)' "$UPSTREAM_HEALTH_WORKFLOW" \
   || fail "upstream health is missing the combined SukiSU SUSFS/NoMount/KPM preset"
+grep -Fq -- '- KernelSU-Next + SUSFS + NoMount (experimental)' "$UPSTREAM_HEALTH_WORKFLOW" \
+  || fail "upstream health is missing KernelSU-Next NoMount"
 grep -Fq -- '- integration: KernelSU-Next + SUSFS + ZeroMount (experimental)' "$UPSTREAM_HEALTH_WORKFLOW" \
   || fail "upstream health is missing KernelSU-Next ZeroMount"
 grep -Fq -- '- integration: ReSukiSU + SUSFS + ZeroMount (experimental)' "$UPSTREAM_HEALTH_WORKFLOW" \
@@ -297,18 +324,21 @@ assert_eq "16" "$SUPPORTED_ANDROID_VERSIONS" "Android 16 development detection"
 
 ANYKERNEL_FIXTURE="$(mktemp)"
 UPDATE_BINARY_FIXTURE="$(mktemp)"
+APP_STAGING_FIXTURE="$(mktemp)"
 KPM_CONFIG_FIXTURE="$(mktemp)"
+KSUN_NOMOUNT_CONFIG_FIXTURE="$(mktemp)"
 ZEROMOUNT_CONFIG_FIXTURE="$(mktemp)"
 ZEROMOUNT_FIXTURE_DIR="$(mktemp -d)"
 MODULE_CONFIG_FIXTURE="$(mktemp)"
-SPINLOCK_KCONFIG_FIXTURE="$(mktemp)"
+SCMVERSION_FIXTURE="$(mktemp)"
 KPM_VERIFY_FIXTURE="$(mktemp -d)"
 NOMOUNT_FIXTURE_DIR="$(mktemp -d)"
 EXTRACT_CERT_FIXTURE_DIR="$(mktemp -d)"
 ANYKERNEL_CACHE_FIXTURE_DIR="$(mktemp -d)"
 ANYKERNEL_PACKAGE_FIXTURE_DIR="$(mktemp -d)"
+ANYKERNEL_SLOT_FIXTURE_DIR="$(mktemp -d)"
 SUSFS_VENDOR_FIXTURE_DIR="$(mktemp -d)"
-trap 'rm -f "$ANYKERNEL_FIXTURE" "$UPDATE_BINARY_FIXTURE" "$KPM_CONFIG_FIXTURE" "$ZEROMOUNT_CONFIG_FIXTURE" "$MODULE_CONFIG_FIXTURE" "$SPINLOCK_KCONFIG_FIXTURE"; rm -rf "$KPM_VERIFY_FIXTURE" "$NOMOUNT_FIXTURE_DIR" "$ZEROMOUNT_FIXTURE_DIR" "$EXTRACT_CERT_FIXTURE_DIR" "$ANYKERNEL_CACHE_FIXTURE_DIR" "$ANYKERNEL_PACKAGE_FIXTURE_DIR" "$SUSFS_VENDOR_FIXTURE_DIR"' EXIT
+trap 'rm -f "$ANYKERNEL_FIXTURE" "$UPDATE_BINARY_FIXTURE" "$APP_STAGING_FIXTURE" "$KPM_CONFIG_FIXTURE" "$KSUN_NOMOUNT_CONFIG_FIXTURE" "$ZEROMOUNT_CONFIG_FIXTURE" "$MODULE_CONFIG_FIXTURE" "$SCMVERSION_FIXTURE"; rm -rf "$KPM_VERIFY_FIXTURE" "$NOMOUNT_FIXTURE_DIR" "$ZEROMOUNT_FIXTURE_DIR" "$EXTRACT_CERT_FIXTURE_DIR" "$ANYKERNEL_CACHE_FIXTURE_DIR" "$ANYKERNEL_PACKAGE_FIXTURE_DIR" "$ANYKERNEL_SLOT_FIXTURE_DIR" "$SUSFS_VENDOR_FIXTURE_DIR"' EXIT
 
 mkdir -p "$ZEROMOUNT_FIXTURE_DIR/fs"
 cat > "$ZEROMOUNT_FIXTURE_DIR/fs/stat.c" <<'EOF'
@@ -402,10 +432,98 @@ grep -Fxq 'BLOCK=boot;' "$ANYKERNEL_TEMPLATE_FIXTURE" \
   || fail "AnyKernel device template does not target boot by partition name"
 grep -Fxq 'IS_SLOT_DEVICE=1;' "$ANYKERNEL_TEMPLATE_FIXTURE" \
   || fail "AnyKernel device template does not enable A/B slot detection"
+grep -Fxq 'SLOT_SELECT=active;' "$ANYKERNEL_TEMPLATE_FIXTURE" \
+  || fail "AnyKernel device template does not pin flashing to the active slot"
+grep -Fxq 'PATCH_VBMETA_FLAG=0;' "$ANYKERNEL_TEMPLATE_FIXTURE" \
+  || fail "AnyKernel device template does not preserve the boot vbmeta flag"
+grep -Fxq 'NO_MAGISK_CHECK=1;' "$ANYKERNEL_TEMPLATE_FIXTURE" \
+  || fail "AnyKernel device template does not skip unnecessary Magisk ramdisk handling"
+grep -Fxq 'NO_VBMETA_PARTITION_PATCH=1;' "$ANYKERNEL_TEMPLATE_FIXTURE" \
+  || fail "AnyKernel device template does not protect the standalone vbmeta partition"
+grep -Fq 'Active-slot boot target verification failed' "$ANYKERNEL_TEMPLATE_FIXTURE" \
+  || fail "AnyKernel device template does not verify the resolved active-slot boot target"
+grep -Fxq 'split_boot;' "$ANYKERNEL_TEMPLATE_FIXTURE" \
+  || fail "AnyKernel device template does not support ramdiskless boot images"
+grep -Fxq 'flash_boot;' "$ANYKERNEL_TEMPLATE_FIXTURE" \
+  || fail "AnyKernel device template does not preserve a ramdiskless boot layout"
+if grep -Eq '^[[:space:]]*(dump_boot|write_boot);' "$ANYKERNEL_TEMPLATE_FIXTURE"; then
+  fail "AnyKernel device template still requires a boot ramdisk"
+fi
+grep -Fq 'Stage 1/3: dumping and splitting boot image' "$ANYKERNEL_TEMPLATE_FIXTURE" \
+  || fail "AnyKernel device template does not report the dump stage"
+grep -Fq 'Stage 3/3: rebuilding and flashing boot image' "$ANYKERNEL_TEMPLATE_FIXTURE" \
+  || fail "AnyKernel device template does not report the flash stage"
 if grep -Eq 'omap_hsmmc|maguro|toro|tuna' "$ANYKERNEL_TEMPLATE_FIXTURE"; then
   fail "AnyKernel device template retained an upstream example-device setting"
 fi
+
+mkdir -p "$ANYKERNEL_SLOT_FIXTURE_DIR/tools"
+cp "$ANYKERNEL_TEMPLATE_FIXTURE" "$ANYKERNEL_SLOT_FIXTURE_DIR/anykernel.sh"
+cat > "$ANYKERNEL_SLOT_FIXTURE_DIR/tools/ak3-core.sh" <<'EOF'
+ui_print() { :; }
+abort() {
+  printf '%s\n' "$*"
+  exit 97
+}
+SLOT="${TEST_RESOLVED_SLOT:?}"
+BLOCK="${TEST_RESOLVED_BLOCK:?}"
+split_boot() { printf '%s\n' split >> "$TEST_TRACE"; }
+flash_boot() { printf '%s\n' flash >> "$TEST_TRACE"; }
+EOF
+SLOT_TRACE="$ANYKERNEL_SLOT_FIXTURE_DIR/trace"
+(
+  cd "$ANYKERNEL_SLOT_FIXTURE_DIR"
+  TEST_RESOLVED_SLOT=_a \
+    TEST_RESOLVED_BLOCK=/dev/block/by-name/boot_a \
+    TEST_TRACE="$SLOT_TRACE" \
+    sh anykernel.sh
+)
+assert_eq $'split\nflash' "$(cat "$SLOT_TRACE")" \
+  "AnyKernel verified active-slot flash path"
+rm -f "$SLOT_TRACE"
+if (
+  cd "$ANYKERNEL_SLOT_FIXTURE_DIR"
+  TEST_RESOLVED_SLOT=_a \
+    TEST_RESOLVED_BLOCK=/dev/block/by-name/boot_b \
+    TEST_TRACE="$SLOT_TRACE" \
+    sh anykernel.sh >/dev/null 2>&1
+); then
+  fail "AnyKernel accepted an inactive-slot boot target"
+fi
+test ! -e "$SLOT_TRACE" \
+  || fail "AnyKernel started modifying boot before rejecting an inactive-slot target"
 rm -f "$ANYKERNEL_TEMPLATE_FIXTURE"
+
+printf '%s\n' \
+  '[ "$AKHOME" ] || export AKHOME=$POSTINSTALL/tmp/anykernel;' \
+  'printf "%s\n" "$AKHOME"' \
+  > "$APP_STAGING_FIXTURE"
+chmod 755 "$APP_STAGING_FIXTURE"
+patch_anykernel_app_flash_staging "$APP_STAGING_FIXTURE"
+sh -n "$APP_STAGING_FIXTURE" \
+  || fail "AnyKernel app-flasher staging produced invalid shell syntax"
+APP_PRIVATE_AKHOME="$(
+  AKHOME=/data/user/0/com.sukisu.ultra/files/tmp/anykernel \
+    POSTINSTALL=/data/user/0/com.sukisu.ultra/files \
+    sh "$APP_STAGING_FIXTURE"
+)"
+[[ "$APP_PRIVATE_AKHOME" == /data/local/tmp/anykernel-* ]] \
+  || fail "AnyKernel did not replace an app-private AKHOME: $APP_PRIVATE_AKHOME"
+APP_PRIVATE_POSTINSTALL="$(
+  AKHOME='' \
+    POSTINSTALL=/data/user/0/com.sukisu.ultra/files \
+    sh "$APP_STAGING_FIXTURE"
+)"
+[[ "$APP_PRIVATE_POSTINSTALL" == /data/local/tmp/anykernel-* ]] \
+  || fail "AnyKernel did not replace an app-private POSTINSTALL: $APP_PRIVATE_POSTINSTALL"
+RECOVERY_AKHOME="$(AKHOME='' POSTINSTALL=/postinstall sh "$APP_STAGING_FIXTURE")"
+assert_eq "/postinstall/tmp/anykernel" "$RECOVERY_AKHOME" \
+  "AnyKernel recovery staging path"
+APP_STAGING_HASH="$(sha256sum "$APP_STAGING_FIXTURE" | cut -d' ' -f1)"
+patch_anykernel_app_flash_staging "$APP_STAGING_FIXTURE"
+assert_eq "$APP_STAGING_HASH" \
+  "$(sha256sum "$APP_STAGING_FIXTURE" | cut -d' ' -f1)" \
+  "AnyKernel app-flasher staging idempotence"
 
 cat > "$EXTRACT_CERT_FIXTURE_DIR/extract-cert.c" <<'EOF'
 #include <openssl/engine.h>
@@ -458,15 +576,6 @@ mkdir -p \
   "$KPM_VERIFY_FIXTURE/toolchain"
 : > "$KPM_VERIFY_FIXTURE/out/drivers/kernelsu/infra/symbol_resolver.o"
 printf '%s\n' '0000000000001000 T sukisu_handle_kpm' > "$KPM_VERIFY_FIXTURE/out/System.map"
-printf '%s\n' \
-  'CONFIG_MODULES=y' \
-  'CONFIG_MODULE_UNLOAD=y' \
-  'CONFIG_MODVERSIONS=y' \
-  'CONFIG_MODULE_FORCE_LOAD=y' \
-  'CONFIG_KASAN=y' \
-  'CONFIG_KASAN_HW_TAGS=y' \
-  '# CONFIG_TRIM_UNUSED_KSYMS is not set' \
-  > "$KPM_VERIFY_FIXTURE/out/.config"
 cat > "$KPM_VERIFY_FIXTURE/toolchain/llvm-nm" <<'EOF'
 #!/usr/bin/env bash
 case "${*: -1}" in
@@ -493,15 +602,6 @@ chmod +x "$KPM_VERIFY_FIXTURE/toolchain/llvm-nm"
   verify_kpm_binary_presence >/dev/null
   grep -Fq 'T find_kernel_symbol_exact' kpm-proof.txt \
     || fail "KPM proof does not record the leaf resolver definition"
-  printf '%s\n' \
-    '0x11111111 module_layout vmlinux EXPORT_SYMBOL' \
-    '0x22222222 _raw_spin_lock vmlinux EXPORT_SYMBOL' \
-    '0x33333333 _raw_spin_unlock vmlinux EXPORT_SYMBOL' \
-    '0x44444444 kasan_flag_enabled vmlinux EXPORT_SYMBOL' \
-    > out/vmlinux.symvers
-  verify_external_module_exports >/dev/null
-  grep -Fq 'kasan_flag_enabled' external-module-proof.txt \
-    || fail "external module proof does not record the required exports"
 )
 
 KSU_TYPE="SukiSU-Ultra-with-susfs-nomount-KPM"
@@ -514,6 +614,15 @@ grep -q '^CONFIG_KSU_SUSFS_SUS_MAP=y$' "$KPM_CONFIG_FIXTURE" || fail "combined p
 grep -q '^CONFIG_KSU_SUSFS_OPEN_REDIRECT=y$' "$KPM_CONFIG_FIXTURE" || fail "combined preset SUSFS redirect config"
 grep -q '^CONFIG_KEYS=y$' "$KPM_CONFIG_FIXTURE" || fail "combined preset NoMount key config"
 grep -q '^CONFIG_NOMOUNT=y$' "$KPM_CONFIG_FIXTURE" || fail "combined preset NoMount config"
+
+KSU_TYPE="KernelSU-Next-with-susfs-nomount"
+apply_variant_configs "$KSUN_NOMOUNT_CONFIG_FIXTURE"
+grep -q '^CONFIG_KSU_SUSFS=y$' "$KSUN_NOMOUNT_CONFIG_FIXTURE" || fail "KernelSU-Next NoMount SUSFS config"
+grep -q '^CONFIG_KEYS=y$' "$KSUN_NOMOUNT_CONFIG_FIXTURE" || fail "KernelSU-Next NoMount key config"
+grep -q '^CONFIG_NOMOUNT=y$' "$KSUN_NOMOUNT_CONFIG_FIXTURE" || fail "KernelSU-Next NoMount config"
+if grep -q '^CONFIG_ZEROMOUNT=y$' "$KSUN_NOMOUNT_CONFIG_FIXTURE"; then
+  fail "KernelSU-Next NoMount preset must not enable ZeroMount"
+fi
 
 KSU_TYPE="SukiSU-Ultra-with-susfs-zeromount-KPM"
 apply_variant_configs "$ZEROMOUNT_CONFIG_FIXTURE"
@@ -539,55 +648,36 @@ CONFIG_KASAN_GENERIC=y
 CONFIG_KASAN_SW_TAGS=y
 # CONFIG_KASAN_HW_TAGS is not set
 EOF
+MODULE_CONFIG_HASH="$(sha256sum "$MODULE_CONFIG_FIXTURE" | cut -d' ' -f1)"
+MODULE_ABI_PATTERN='^(CONFIG|# CONFIG)_(MODULES|MODULE_UNLOAD|MODVERSIONS|MODULE_FORCE_LOAD|ARCH_INLINE_SPIN_LOCK|ARCH_INLINE_SPIN_UNLOCK|INLINE_SPIN_LOCK|UNINLINE_SPIN_UNLOCK|TRIM_UNUSED_KSYMS|KASAN|KASAN_GENERIC|KASAN_SW_TAGS|KASAN_HW_TAGS)'
+MODULE_ABI_SNAPSHOT="$(grep -E "$MODULE_ABI_PATTERN" "$MODULE_CONFIG_FIXTURE")"
 KSU_TYPE="None"
 apply_variant_configs "$MODULE_CONFIG_FIXTURE"
-for module_config in \
-  CONFIG_MODULES \
-  CONFIG_MODULE_UNLOAD \
-  CONFIG_MODVERSIONS \
-  CONFIG_MODULE_FORCE_LOAD \
-  CONFIG_UNINLINE_SPIN_UNLOCK \
-  CONFIG_KASAN \
-  CONFIG_KASAN_HW_TAGS; do
-  grep -q "^${module_config}=y$" "$MODULE_CONFIG_FIXTURE" \
-    || fail "external module compatibility config ${module_config}"
-done
-grep -q '^# CONFIG_TRIM_UNUSED_KSYMS is not set$' "$MODULE_CONFIG_FIXTURE" \
-  || fail "external module exports must not be trimmed"
-for inline_config in \
-  CONFIG_ARCH_INLINE_SPIN_LOCK \
-  CONFIG_ARCH_INLINE_SPIN_UNLOCK \
-  CONFIG_INLINE_SPIN_LOCK; do
-  grep -q "^# ${inline_config} is not set$" "$MODULE_CONFIG_FIXTURE" \
-    || fail "external module compatibility must disable ${inline_config}"
-done
-grep -q '^# CONFIG_KASAN_GENERIC is not set$' "$MODULE_CONFIG_FIXTURE" \
-  || fail "generic KASAN must not override hardware-tag KASAN"
-grep -q '^# CONFIG_KASAN_SW_TAGS is not set$' "$MODULE_CONFIG_FIXTURE" \
-  || fail "software-tag KASAN must not override hardware-tag KASAN"
-grep -Fq 'verify_external_module_exports' "$COMPILE_SCRIPT" \
-  || fail "full builds do not verify external module exports"
-grep -Fq 'enable_external_module_spinlock_exports arch/arm64/Kconfig' "$COMPILE_SCRIPT" \
-  || fail "builds do not make the raw spin functions exportable"
-
-cat > "$SPINLOCK_KCONFIG_FIXTURE" <<'EOF'
-config ARM64
-	bool "ARM64"
-	select ARCH_INLINE_SPIN_LOCK
-	select ARCH_INLINE_SPIN_LOCK_BH
-	select ARCH_INLINE_SPIN_UNLOCK
-	select ARCH_INLINE_SPIN_UNLOCK_BH
-EOF
-enable_external_module_spinlock_exports "$SPINLOCK_KCONFIG_FIXTURE" >/dev/null
-enable_external_module_spinlock_exports "$SPINLOCK_KCONFIG_FIXTURE" >/dev/null
-grep -Fq 'select ARCH_INLINE_SPIN_LOCK_BH' "$SPINLOCK_KCONFIG_FIXTURE" \
-  || fail "spinlock compatibility patch must preserve the BH inline selection"
-grep -Fq 'select ARCH_INLINE_SPIN_UNLOCK_BH' "$SPINLOCK_KCONFIG_FIXTURE" \
-  || fail "spinlock compatibility patch must preserve the unlock-BH inline selection"
-grep -Eq '^[[:space:]]*select UNINLINE_SPIN_UNLOCK[[:space:]]*$' "$SPINLOCK_KCONFIG_FIXTURE" \
-  || fail "spinlock compatibility patch must select the out-of-line unlock"
-if grep -Eq '^[[:space:]]*select ARCH_INLINE_SPIN_(LOCK|UNLOCK)[[:space:]]*$' "$SPINLOCK_KCONFIG_FIXTURE"; then
-  fail "spinlock compatibility patch did not disable the plain inline selections"
+assert_eq "$MODULE_CONFIG_HASH" \
+  "$(sha256sum "$MODULE_CONFIG_FIXTURE" | cut -d' ' -f1)" \
+  "no-root preset must preserve vendor ABI-sensitive configs byte for byte"
+KSU_TYPE="SukiSU-Ultra-with-susfs-nomount-KPM"
+apply_variant_configs "$MODULE_CONFIG_FIXTURE"
+assert_eq "$MODULE_ABI_SNAPSHOT" \
+  "$(grep -E "$MODULE_ABI_PATTERN" "$MODULE_CONFIG_FIXTURE")" \
+  "root presets must preserve vendor ABI-sensitive configs"
+grep -Fq 'write_kernel_scmversion "$KERNEL_COMMIT"' "$COMPILE_SCRIPT" \
+  || fail "full builds do not pin the ROM-compatible kernel release suffix"
+if grep -Fq 'touch .scmversion' "$COMPILE_SCRIPT"; then
+  fail "full builds still erase the kernel source identity from vermagic"
+fi
+write_kernel_scmversion \
+  0123456789abcdef0123456789abcdef01234567 \
+  "$SCMVERSION_FIXTURE"
+assert_eq '-g0123456789ab' "$(cat "$SCMVERSION_FIXTURE")" \
+  "kernel source identity suffix"
+verify_kernel_release_identity \
+  '5.15.211-g0123456789ab' \
+  0123456789abcdef0123456789abcdef01234567
+if verify_kernel_release_identity \
+  '5.15.211' \
+  0123456789abcdef0123456789abcdef01234567 >/dev/null 2>&1; then
+  fail "kernel release verification accepted a missing source identity"
 fi
 
 printf '%s\n' \
@@ -629,6 +719,7 @@ test -z "$(git -C "$ANYKERNEL_CACHE_FIXTURE_DIR" status --porcelain)" \
 mkdir -p \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/META-INF/com/google/android" \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/tools" \
+  "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk/lib/arm64-v8a" \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8550/out/arch/arm64/boot" \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8550/SukiSU-Ultra/userspace/ksud/bin/aarch64" \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/bin"
@@ -648,12 +739,19 @@ printf '%s\n' \
   '    abort " " "Unsupported device. Aborting...";' \
   '  fi;' \
   'setup_bb;' \
+  'if [ $? != 0 ]; then exit 1; fi;' \
+  'OLD_PATH="$PATH";' \
   > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/META-INF/com/google/android/update-binary"
 printf '%s\n' upstream-arm-busybox > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/tools/busybox"
+printf '%s\n' upstream-arm-magiskboot > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/tools/magiskboot"
+for optional_tool in fec httools_static lptools_static magiskpolicy snapshotupdater_static; do
+  printf '%s\n' upstream-arm-optional > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/tools/$optional_tool"
+done
 chmod 755 \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/anykernel.sh" \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/META-INF/com/google/android/update-binary" \
-  "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/tools/busybox"
+  "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/tools/busybox" \
+  "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/tools/magiskboot"
 git -C "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source" init -q
 git -C "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source" config user.name fixture
 git -C "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source" config user.email fixture@example.invalid
@@ -665,6 +763,11 @@ printf '%s\n' 'kernel.string=dirty-cache' > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work
 printf '%s\n' stale > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/Image"
 printf '%s\n' image > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8550/out/arch/arm64/boot/Image"
 printf '%s\n' sukisu-arm64-busybox > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8550/SukiSU-Ultra/userspace/ksud/bin/aarch64/busybox"
+printf '%s\n' magisk-arm64-magiskboot > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk/lib/arm64-v8a/libmagiskboot.so"
+(
+  cd "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk"
+  zip -q "$ANYKERNEL_PACKAGE_FIXTURE_DIR/Magisk.apk" lib/arm64-v8a/libmagiskboot.so
+)
 cat > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/bin/jq" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' '{}'
@@ -710,6 +813,9 @@ for package_timestamp in 20260101_000000 20260101_000001; do
     GITHUB_WORKSPACE="$ANYKERNEL_PACKAGE_FIXTURE_DIR/work" \
     GITHUB_ENV="$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/github-env" \
     GITHUB_OUTPUT="$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/github-output" \
+    MAGISK_APK_PATH="$ANYKERNEL_PACKAGE_FIXTURE_DIR/Magisk.apk" \
+    MAGISK_APK_SHA256="$(sha256sum "$ANYKERNEL_PACKAGE_FIXTURE_DIR/Magisk.apk" | cut -d' ' -f1)" \
+    MAGISKBOOT_ARM64_SHA256="$(sha256sum "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk/lib/arm64-v8a/libmagiskboot.so" | cut -d' ' -f1)" \
     ANYKERNEL_REPO="$ANYKERNEL_PACKAGE_FIXTURE_DIR/source" \
     ANYKERNEL_COMMIT="$ANYKERNEL_PACKAGE_COMMIT" \
     bash "$ANYKERNEL_PACKAGE_SCRIPT" >/dev/null
@@ -718,26 +824,60 @@ for package_timestamp in 20260101_000000 20260101_000001; do
     || fail "AnyKernel packaging did not produce the flashable archive"
   test -s "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/release-assets/SHA256SUMS" \
     || fail "AnyKernel packaging did not produce checksums"
+  grep -Fxq 'split_boot;' \
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/anykernel.sh" \
+    || fail "AnyKernel package does not split ramdiskless boot images"
+  grep -Fxq 'flash_boot;' \
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/anykernel.sh" \
+    || fail "AnyKernel package does not flash ramdiskless boot images"
+  grep -Fxq 'SLOT_SELECT=active;' \
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/anykernel.sh" \
+    || fail "AnyKernel package does not force active-slot flashing"
+  grep -Fq 'Active-slot boot target verification failed' \
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/anykernel.sh" \
+    || fail "AnyKernel package does not verify the resolved active-slot boot target"
+  if grep -Eq '^[[:space:]]*(dump_boot|write_boot);' \
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/anykernel.sh"; then
+    fail "AnyKernel package still attempts to unpack a boot ramdisk"
+  fi
   assert_eq "sukisu-arm64-busybox" \
     "$(cat "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/tools/busybox")" \
     "KPM AnyKernel arm64 BusyBox replacement"
   assert_eq "755" \
     "$(stat -c '%a' "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/tools/busybox")" \
     "KPM AnyKernel arm64 BusyBox permissions"
-  grep -Fq '[ "$AKHOME" ] || export AKHOME=$POSTINSTALL/tmp/anykernel;' \
+  assert_eq "magisk-arm64-magiskboot" \
+    "$(cat "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/tools/magiskboot")" \
+    "KPM AnyKernel arm64 MagiskBoot replacement"
+  assert_eq "755" \
+    "$(stat -c '%a' "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/tools/magiskboot")" \
+    "KPM AnyKernel arm64 MagiskBoot permissions"
+  for optional_tool in fec httools_static lptools_static magiskpolicy snapshotupdater_static; do
+    test ! -e "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/tools/$optional_tool" \
+      || fail "KPM AnyKernel retained incompatible optional tool: $optional_tool"
+  done
+  grep -Fq 'export AKHOME=/data/local/tmp/anykernel-$$;' \
     "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" \
-    || fail "AnyKernel package changed upstream work-directory handling"
+    || fail "AnyKernel package does not stage app-triggered flashes in executable temporary storage"
   grep -Fq 'AnyKernel work directory: $AKHOME' \
     "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" \
     || fail "AnyKernel package does not report its effective staging directory"
   grep -Fq 'Bundled BusyBox ABI: arm64' \
     "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" \
     || fail "KPM AnyKernel package does not report its arm64 BusyBox"
+  grep -Fq 'Bundled MagiskBoot ABI: arm64' \
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" \
+    || fail "KPM AnyKernel package does not report its arm64 MagiskBoot"
+  grep -Fq 'Removing incompatible app-injected mkbootfs' \
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" \
+    || fail "KPM AnyKernel package does not remove the manager's ARM32 mkbootfs"
   sh -n "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" \
     || fail "AnyKernel preflight diagnostics produced invalid shell syntax"
   PREFLIGHT_UPDATER_HASH="$(sha256sum "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" | cut -d' ' -f1)"
+  patch_anykernel_app_flash_staging \
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary"
   add_anykernel_preflight_diagnostics \
-    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" arm64
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" arm64 true
   assert_eq "$PREFLIGHT_UPDATER_HASH" \
     "$(sha256sum "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" | cut -d' ' -f1)" \
     "AnyKernel preflight diagnostics idempotence"

@@ -38,6 +38,14 @@ Use the dedicated crDroid profile on crDroid: it pins crDroid's own `16.0`
 kernel and modules instead of the unrelated development/Lineage branch, which
 is not ABI-compatible with crDroid's first-stage vendor modules.
 
+The OnePlus 12 LineageOS and crDroid profiles also reproduce both device-tree
+make assignments, `CONFIG_OPLUS_DEVICE_DTBS=y` from the shared SM8650
+BoardConfig and `CONFIG_WAFFLE_DTB=y` from the waffle BoardConfig, on every
+make invocation and record them in build provenance. Command-line Kbuild
+assignments are not expected to be written back to `.config`; keeping them on
+the make command line matches how the ROM builds its kernel and external
+modules.
+
 The LunarisOS OnePlus 11 profile follows the kernel source published in the
 LunarisOS OTA metadata. Its maintainer kernel uses `lineage-23.2`, while its
 matching external modules use the `los` branch; the resolver pins both branches
@@ -65,16 +73,12 @@ safely.
   workflow commit, builds the same verified artifact, then a separate
   least-privilege job publishes the release from that tag.
 
-Full builds preserve GKI module versioning and vendor-module compatibility, but
-disable unused-export trimming so post-boot external drivers can resolve normal
-kernel exports. They also keep the plain arm64 raw spin lock/unlock operations
-out of line so their `EXPORT_SYMBOL` definitions are compiled. The pipeline
-verifies `module_layout`, `_raw_spin_lock`, `_raw_spin_unlock`, and
-`kasan_flag_enabled` against the generated `vmlinux.symvers`; this prevents
-shipping an image that later fails those symbols during `insmod`. Forced loading
-is available for loaders handling intentionally stripped version tables, but a
-module must still target the same kernel/KMI—forcing a genuinely incompatible
-module can crash the device.
+Full builds preserve the upstream/vendor ABI-sensitive configuration instead of
+forcing debugging, symbol-export, or spinlock options. The pipeline also pins
+the kernel release suffix to the exact source commit (for example,
+`-g0d516eb3375f`) and verifies that release in the final `Image` banner. This
+keeps the kernel vermagic aligned with the ROM's vendor modules while the
+selected root preset changes only its required feature options.
 
 ## Root integrations
 
@@ -86,6 +90,7 @@ Available workflow presets:
 | `Official KernelSU` | Official KernelSU | Supported |
 | `KernelSU-Next` | KernelSU-Next | Supported |
 | `KernelSU-Next + SUSFS` | KernelSU-Next with SUSFS | Supported |
+| `KernelSU-Next + SUSFS + NoMount (experimental)` | KernelSU-Next with SUSFS and NoMount | Experimental |
 | `KernelSU-Next + SUSFS + ZeroMount (experimental)` | KernelSU-Next with SUSFS and ZeroMount | Experimental |
 | `KowSU` | KowSU | Supported |
 | `SukiSU Ultra + KPM (experimental)` | SukiSU Ultra with KPM | Experimental |
@@ -98,9 +103,10 @@ Available workflow presets:
 | `ReSukiSU + SUSFS + NoMount (experimental)` | ReSukiSU with SUSFS and NoMount | Experimental |
 
 Selecting `Build all 3 featured SUSFS variants (batch)` starts a three-entry
-matrix with the existing NoMount/SUSFS combinations. Selecting `Build all 3
-ZeroMount variants (batch)` instead builds `SukiSU Ultra + SUSFS + ZeroMount +
-KPM`, `ReSukiSU + SUSFS + ZeroMount`, and `KernelSU-Next + SUSFS + ZeroMount`.
+matrix in which all three SUSFS integrations also include NoMount. Selecting
+`Build all 3 ZeroMount variants (batch)` instead builds `SukiSU Ultra + SUSFS +
+ZeroMount + KPM`, `ReSukiSU + SUSFS + ZeroMount`, and
+`KernelSU-Next + SUSFS + ZeroMount`.
 Each entry keeps its own package and diagnostics artifact; release mode publishes
 all three builds under the same immutable release tag.
 
@@ -131,8 +137,9 @@ compatibility checks keep the KPM symbol resolver linked and initialized and
 preserve SukiSU's WebView zygote policy after the SUSFS patch. Unknown patch
 rejects fail closed and are included in diagnostics.
 
-The KernelSU-Next + SUSFS preset resolves `pershoot/KernelSU-Next@dev-susfs`
-to an exact commit. The regular KernelSU-Next preset remains on the official
+The KernelSU-Next + SUSFS presets, including the NoMount and ZeroMount variants,
+resolve `pershoot/KernelSU-Next@dev-susfs` to an exact commit. The regular
+KernelSU-Next preset remains on the official
 `KernelSU-Next/KernelSU-Next@dev` branch. The compatibility branch is required
 because the SUSFS KernelSU-side patch does not apply to the current official
 development tree; the pipeline still takes the kernel-side SUSFS files and
@@ -183,14 +190,22 @@ or regenerate every cached input.
 Generated AnyKernel3 ZIPs enable `do.devicecheck=1` and contain only the
 device-specific codenames and stock board IDs assigned to the selected profile.
 Android version checking is also enabled when the selected branch identifies a
-known Android generation. The installer targets the slot-aware `boot` partition
-by name and preserves the existing ramdisk while replacing only the kernel
-Image; upstream AnyKernel example-device paths and demo ramdisk edits are not
-included. KPM packages replace AnyKernel's legacy 32-bit ARM BusyBox with the
-64-bit AArch64 BusyBox from the exact SukiSU source revision used by the build.
-This is required on arm64-only SoCs such as the Snapdragon 8 Gen 3 in OnePlus
-12. The installer logs both the device ABI and packaged BusyBox ABI before
-initializing its tools.
+known Android generation. The installer targets the current active `boot`
+partition by name, refuses to continue unless the resolved `boot_a`/`boot_b`
+path matches that slot, splits and rebuilds the boot image without unpacking
+its ramdisk, and replaces only the kernel Image. This supports newer devices such as OnePlus 11,
+where the first-stage ramdisk lives in `init_boot` and `boot` legitimately has
+no ramdisk, while preserving a boot ramdisk when one is present. Upstream
+AnyKernel example-device paths and demo ramdisk edits are not included. KPM
+packages replace AnyKernel's legacy 32-bit ARM BusyBox and
+MagiskBoot with verified AArch64 builds. BusyBox comes from the exact SukiSU
+source revision used by the build; MagiskBoot comes from a pinned official
+Magisk APK with both archive and extracted-binary SHA-256 verification. On
+arm64-only SoCs such as the Snapdragon 8 Gen 3 in OnePlus 12, the installer
+also discards the manager app's incompatible ARM32 `mkbootfs` injection and
+uses BusyBox `cpio` instead. Other unused ARM32 AnyKernel partition utilities
+are removed, and packaging fails if any remaining native runtime tool is not
+ELF64/AArch64.
 
 Each full build produces `release-assets/` containing:
 
@@ -243,7 +258,8 @@ Pushes and pull requests run:
 
 `Check upstream health` runs every Monday and can also be started manually. It
 resolves exact commits for all twelve profiles, then runs a twenty-five-job
-smoke-test matrix: KernelSU-Next + SUSFS, SukiSU Ultra + SUSFS + NoMount + KPM
+smoke-test matrix: KernelSU-Next + SUSFS + NoMount, SukiSU Ultra + SUSFS +
+NoMount + KPM
 (including the crDroid OnePlus 12 / Android 6.1 vendor include drift),
 and ReSukiSU + SUSFS + NoMount are validated on representative SM7550 (including
 both CE4 source families), SM8450, SM8550, and SM8650 sources, with an additional

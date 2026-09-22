@@ -95,6 +95,7 @@ on:
           - Official KernelSU
           - KernelSU-Next
           - KernelSU-Next + SUSFS
+          - KernelSU-Next + SUSFS + NoMount (experimental)
           - KernelSU-Next + SUSFS + ZeroMount (experimental)
           - KowSU
           - SukiSU Ultra + KPM (experimental)
@@ -166,7 +167,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        root_solution: ${{ fromJSON(inputs.root_solution == 'Build all 3 featured SUSFS variants (batch)' && '["SukiSU Ultra + SUSFS + NoMount + KPM (experimental)","ReSukiSU + SUSFS + NoMount (experimental)","KernelSU-Next + SUSFS"]' || inputs.root_solution == 'Build all 3 ZeroMount variants (batch)' && '["SukiSU Ultra + SUSFS + ZeroMount + KPM (experimental)","ReSukiSU + SUSFS + ZeroMount (experimental)","KernelSU-Next + SUSFS + ZeroMount (experimental)"]' || format('["{0}"]', inputs.root_solution)) }}
+        root_solution: ${{ fromJSON(inputs.root_solution == 'Build all 3 featured SUSFS variants (batch)' && '["SukiSU Ultra + SUSFS + NoMount + KPM (experimental)","ReSukiSU + SUSFS + NoMount (experimental)","KernelSU-Next + SUSFS + NoMount (experimental)"]' || inputs.root_solution == 'Build all 3 ZeroMount variants (batch)' && '["SukiSU Ultra + SUSFS + ZeroMount + KPM (experimental)","ReSukiSU + SUSFS + ZeroMount (experimental)","KernelSU-Next + SUSFS + ZeroMount (experimental)"]' || format('["{0}"]', inputs.root_solution)) }}
     concurrency:
       group: kernel-ci-${{ github.ref_name }}-${{ inputs.build_profile }}-${{ matrix.root_solution }}-${{ inputs.branch_mode }}-${{ inputs.kernel_branch }}-${{ inputs.build_mode }}
       cancel-in-progress: true
@@ -356,8 +357,9 @@ jobs:
             ${{ github.workspace }}/${{ steps.resolve.outputs.soc }}/zeromount-proof.txt
             ${{ github.workspace }}/${{ steps.resolve.outputs.soc }}/kpm-source-proof.txt
             ${{ github.workspace }}/${{ steps.resolve.outputs.soc }}/kpm-proof.txt
-            ${{ github.workspace }}/${{ steps.resolve.outputs.soc }}/external-module-proof.txt
             ${{ github.workspace }}/${{ steps.resolve.outputs.soc }}/out/.config
+            ${{ github.workspace }}/${{ steps.resolve.outputs.soc }}/out/Module.symvers
+            ${{ github.workspace }}/${{ steps.resolve.outputs.soc }}/out/vmlinux.symvers
 
       - name: Save ccache
         if: always() && inputs.build_mode != 'Patch/config validation only' && steps.ccache-restore.outputs.cache-hit != 'true' && steps.ccache-restore.outputs.cache-primary-key != '' && hashFiles('.ccache/**') != ''
