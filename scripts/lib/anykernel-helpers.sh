@@ -141,8 +141,8 @@ configure_anykernel_properties() {
     echo "::error::At least one AnyKernel3 device codename is required."
     return 1
   }
-  [[ "${#devices[@]}" -le 5 ]] || {
-    echo "::error::AnyKernel3 helper currently supports at most five device codenames."
+  [[ "${#devices[@]}" -le 7 ]] || {
+    echo "::error::AnyKernel3 helper currently supports at most seven device IDs."
     return 1
   }
 
@@ -150,15 +150,36 @@ configure_anykernel_properties() {
   set_ak_property "$file" do.devicecheck 1
   set_ak_property "$file" supported.versions "$android_versions"
 
-  for index in 1 2 3 4 5; do
+  for index in 1 2 3 4 5 6 7; do
     device_value="${devices[$((index - 1))]:-}"
     set_ak_property "$file" "device.name${index}" "$device_value"
   done
 
   grep -q '^do.devicecheck=1$' "$file"
   for device_name in "${devices[@]}"; do
-    grep -q "^device.name[1-5]=${device_name}$" "$file"
+    grep -q "^device.name[1-7]=${device_name}$" "$file"
   done
+}
+
+set_anykernel_flasher_developer() {
+  local file="$1"
+  local tmp_file
+  local upstream_line='ui_print " " "AnyKernel3 by osm0sis @ xda-developers" " ";'
+  local developer_line='ui_print " " "Kernel developer: AzusaMyo @ xda-developers" " ";'
+
+  grep -Fxq "$developer_line" "$file" && return 0
+  grep -Fxq "$upstream_line" "$file" || {
+    echo "::error::AnyKernel3 flasher developer line was not found in $file"
+    return 1
+  }
+
+  tmp_file="$(mktemp)"
+  awk -v upstream_line="$upstream_line" -v developer_line="$developer_line" '
+    $0 == upstream_line { print developer_line; next }
+    { print }
+  ' "$file" > "$tmp_file"
+  replace_file_preserving_mode "$tmp_file" "$file"
+  grep -Fxq "$developer_line" "$file"
 }
 
 add_anykernel_devicecheck_diagnostics() {
@@ -264,17 +285,21 @@ install_anykernel_arm64_magiskboot() {
   local expected_magiskboot_sha256="$3"
   local destination="$4"
   local local_apk="${5:-}"
+  local busybox_destination="${6:-}"
+  local expected_busybox_sha256="${7:-}"
 
   (
     set -e
     local temp_dir
     local apk_file
     local magiskboot_file
+    local busybox_file
 
     temp_dir="$(mktemp -d)"
     trap 'rm -rf "$temp_dir"' EXIT
     apk_file="$temp_dir/Magisk.apk"
     magiskboot_file="$temp_dir/magiskboot"
+    busybox_file="$temp_dir/busybox"
 
     if [[ -n "$local_apk" ]]; then
       cp "$local_apk" "$apk_file"
@@ -291,6 +316,15 @@ install_anykernel_arm64_magiskboot() {
       return 1
     }
     install_anykernel_arm64_binary "$magiskboot_file" "$destination" MagiskBoot
+    if [[ -n "$busybox_destination" ]]; then
+      : "${expected_busybox_sha256:?arm64 BusyBox checksum is required}"
+      unzip -p "$apk_file" lib/arm64-v8a/libbusybox.so > "$busybox_file"
+      printf '%s  %s\n' "$expected_busybox_sha256" "$busybox_file" | sha256sum --check --status || {
+        echo "::error::arm64 BusyBox checksum verification failed."
+        return 1
+      }
+      install_anykernel_arm64_busybox "$busybox_file" "$busybox_destination"
+    fi
   )
 }
 

@@ -195,13 +195,26 @@ enable_susfs_configs() {
     CONFIG_KSU_SUSFS_ENABLE_LOG \
     CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
     CONFIG_KSU_SUSFS_OPEN_REDIRECT
-  disable_config_values "$config_file" \
-    CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+  if [[ "$KSU_TYPE" == SukiSU-Ultra-with-susfs* ]]; then
+    enable_config_values "$config_file" CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+  else
+    disable_config_values "$config_file" CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+  fi
 }
 
 enable_ksu_common_configs() {
   local config_file="$1"
   enable_config_values "$config_file" CONFIG_TMPFS_XATTR
+}
+
+# A boot-only custom Image has a newly generated module signing key and cannot
+# authenticate protected GKI modules retained in the ROM's system_dlkm. This
+# opt-in mode allows those modules through the protected-symbol check. Their
+# signatures still cannot be authenticated with the new Image's key.
+apply_rom_gki_module_compat_config() {
+  local config_file="$1"
+  [[ "${ROM_GKI_MODULE_COMPAT:-0}" == 1 ]] || return 0
+  disable_config_values "$config_file" CONFIG_MODULE_SIG_PROTECT
 }
 
 write_kernel_scmversion() {

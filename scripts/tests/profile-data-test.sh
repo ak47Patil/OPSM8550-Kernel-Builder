@@ -127,8 +127,8 @@ awk '
 
 expected_socs=(sm7550 sm7550 sm8450 sm8450 sm8550 sm8550 sm8550 sm8550 sm8550 sm8650 sm8650 sm8650)
 expected_upstream_socs=(sm8550 sm8550 sm8450 sm8450 sm8550 sm8550 sm8550 sm8550 sm8550 sm8650 sm8650 sm8650)
-expected_codenames=(benz benz negroni ovaltine salami salami "salami aston" "salami aston" aston waffle waffle waffle)
-expected_devices=("benz OP5D3FL1 CPH2613" "benz OP5D3FL1 CPH2613" "negroni OP516EL1 OP516FL1" "ovaltine OP5551L1 OP5552L1" "salami OP591BL1 OP594DL1" "salami OP591BL1 OP594DL1" "salami OP591BL1 OP594DL1 aston OP5D35L1" "salami OP591BL1 OP594DL1 aston OP5D35L1" "aston OP5D35L1" "waffle OP5929L1 OP595DL1" "waffle OP5929L1 OP595DL1" "waffle OP5929L1 OP595DL1")
+expected_codenames=(benz benz negroni ovaltine salami salami "salami aston astonc" "salami aston astonc" "aston astonc" waffle waffle waffle)
+expected_devices=("benz OP5D3FL1 CPH2613" "benz OP5D3FL1 CPH2613" "negroni OP516EL1 OP516FL1" "ovaltine OP5551L1 OP5552L1" "salami OP591BL1 OP594DL1" "salami OP591BL1 OP594DL1" "salami OP591BL1 OP594DL1 aston OP5D35L1 astonc OP5CF9L1" "salami OP591BL1 OP594DL1 aston OP5D35L1 astonc OP5CF9L1" "aston OP5D35L1 astonc OP5CF9L1" "waffle OP5929L1 OP595DL1" "waffle OP5929L1 OP595DL1" "waffle OP5929L1 OP595DL1")
 
 for i in "${!profiles[@]}"; do
   resolve_build_profile "${profiles[$i]}"
@@ -155,8 +155,12 @@ grep -Fq 'device_kernel_make_flags: ($kernel_make_flags | split(" ") | map(selec
   || fail "build provenance does not record device kernel make flags"
 grep -Fq "out/Module.symvers" "$WORKFLOW_FILE" \
   || fail "diagnostics do not retain the kernel module CRC table"
-grep -Fq "it does not replace the ROM's vendor_dlkm modules" "$ANYKERNEL_PACKAGE_SCRIPT" \
-  || fail "release notes do not warn about the retained ROM vendor modules"
+grep -Fq "it does not replace the ROM's system_dlkm or vendor_dlkm modules" "$ANYKERNEL_PACKAGE_SCRIPT" \
+  || fail "release notes do not warn about the retained ROM modules"
+grep -Fq 'INPUT_ROM_GKI_MODULE_COMPAT: ${{ inputs.rom_gki_module_compat }}' "$WORKFLOW_FILE" \
+  || fail "workflow does not pass the selected ROM GKI module compatibility mode"
+grep -Fq 'rom_gki_module_compat: $rom_gki_module_compat' "$ANYKERNEL_PACKAGE_SCRIPT" \
+  || fail "package provenance does not record ROM GKI module compatibility"
 
 resolve_build_profile "SM8550 | OnePlus 11 | LunarisOS"
 assert_eq "https://github.com/osm1019/kernel_oneplus_sm8550.git" "$KERNEL_REPO_OVERRIDE" "LunarisOS kernel repository"
@@ -612,12 +616,14 @@ grep -q '^CONFIG_KALLSYMS_ALL=y$' "$KPM_CONFIG_FIXTURE" || fail "KPM kallsyms-al
 grep -q '^CONFIG_KSU_SUSFS=y$' "$KPM_CONFIG_FIXTURE" || fail "combined preset SUSFS config"
 grep -q '^CONFIG_KSU_SUSFS_SUS_MAP=y$' "$KPM_CONFIG_FIXTURE" || fail "combined preset SUSFS map config"
 grep -q '^CONFIG_KSU_SUSFS_OPEN_REDIRECT=y$' "$KPM_CONFIG_FIXTURE" || fail "combined preset SUSFS redirect config"
+grep -q '^CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y$' "$KPM_CONFIG_FIXTURE" || fail "combined preset SUSFS symbol hiding config"
 grep -q '^CONFIG_KEYS=y$' "$KPM_CONFIG_FIXTURE" || fail "combined preset NoMount key config"
 grep -q '^CONFIG_NOMOUNT=y$' "$KPM_CONFIG_FIXTURE" || fail "combined preset NoMount config"
 
 KSU_TYPE="KernelSU-Next-with-susfs-nomount"
 apply_variant_configs "$KSUN_NOMOUNT_CONFIG_FIXTURE"
 grep -q '^CONFIG_KSU_SUSFS=y$' "$KSUN_NOMOUNT_CONFIG_FIXTURE" || fail "KernelSU-Next NoMount SUSFS config"
+grep -q '^# CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS is not set$' "$KSUN_NOMOUNT_CONFIG_FIXTURE" || fail "KernelSU-Next symbol hiding must stay disabled"
 grep -q '^CONFIG_KEYS=y$' "$KSUN_NOMOUNT_CONFIG_FIXTURE" || fail "KernelSU-Next NoMount key config"
 grep -q '^CONFIG_NOMOUNT=y$' "$KSUN_NOMOUNT_CONFIG_FIXTURE" || fail "KernelSU-Next NoMount config"
 if grep -q '^CONFIG_ZEROMOUNT=y$' "$KSUN_NOMOUNT_CONFIG_FIXTURE"; then
@@ -628,6 +634,7 @@ KSU_TYPE="SukiSU-Ultra-with-susfs-zeromount-KPM"
 apply_variant_configs "$ZEROMOUNT_CONFIG_FIXTURE"
 grep -q '^CONFIG_ZEROMOUNT=y$' "$ZEROMOUNT_CONFIG_FIXTURE" || fail "combined preset ZeroMount config"
 grep -q '^CONFIG_KSU_SUSFS=y$' "$ZEROMOUNT_CONFIG_FIXTURE" || fail "ZeroMount preset SUSFS config"
+grep -q '^CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y$' "$ZEROMOUNT_CONFIG_FIXTURE" || fail "ZeroMount preset SUSFS symbol hiding config"
 grep -q '^CONFIG_KPM=y$' "$ZEROMOUNT_CONFIG_FIXTURE" || fail "ZeroMount preset KPM config"
 if grep -q '^CONFIG_NOMOUNT=y$' "$ZEROMOUNT_CONFIG_FIXTURE"; then
   fail "ZeroMount preset must not enable NoMount"
@@ -661,6 +668,23 @@ apply_variant_configs "$MODULE_CONFIG_FIXTURE"
 assert_eq "$MODULE_ABI_SNAPSHOT" \
   "$(grep -E "$MODULE_ABI_PATTERN" "$MODULE_CONFIG_FIXTURE")" \
   "root presets must preserve vendor ABI-sensitive configs"
+printf '%s\n' 'CONFIG_MODULE_SIG=y' '# CONFIG_MODULE_SIG_FORCE is not set' \
+  'CONFIG_MODULE_SIG_PROTECT=y' >> "$MODULE_CONFIG_FIXTURE"
+ROM_GKI_MODULE_COMPAT=0
+MODULE_CONFIG_HASH="$(sha256sum "$MODULE_CONFIG_FIXTURE" | cut -d' ' -f1)"
+apply_rom_gki_module_compat_config "$MODULE_CONFIG_FIXTURE"
+assert_eq "$MODULE_CONFIG_HASH" \
+  "$(sha256sum "$MODULE_CONFIG_FIXTURE" | cut -d' ' -f1)" \
+  "strict mode must preserve GKI protection"
+ROM_GKI_MODULE_COMPAT=1
+apply_rom_gki_module_compat_config "$MODULE_CONFIG_FIXTURE"
+grep -Fqx '# CONFIG_MODULE_SIG_PROTECT is not set' "$MODULE_CONFIG_FIXTURE" \
+  || fail "ROM compatibility mode did not disable GKI module protection"
+grep -Fqx 'CONFIG_MODULE_SIG=y' "$MODULE_CONFIG_FIXTURE" \
+  || fail "ROM compatibility mode disabled module signature verification"
+grep -Fqx '# CONFIG_MODULE_SIG_FORCE is not set' "$MODULE_CONFIG_FIXTURE" \
+  || fail "ROM compatibility mode changed required module signatures"
+ROM_GKI_MODULE_COMPAT=0
 grep -Fq 'write_kernel_scmversion "$KERNEL_COMMIT"' "$COMPILE_SCRIPT" \
   || fail "full builds do not pin the ROM-compatible kernel release suffix"
 if grep -Fq 'touch .scmversion' "$COMPILE_SCRIPT"; then
@@ -688,9 +712,11 @@ printf '%s\n' \
   'device.name3=' \
   'device.name4=' \
   'device.name5=' \
+  'device.name6=' \
+  'device.name7=' \
   'supported.versions=' > "$ANYKERNEL_FIXTURE"
 chmod 755 "$ANYKERNEL_FIXTURE"
-configure_anykernel_properties "$ANYKERNEL_FIXTURE" "Test Kernel" "salami OP591BL1 OP594DL1 aston OP5D35L1" "16"
+configure_anykernel_properties "$ANYKERNEL_FIXTURE" "Test Kernel" "salami OP591BL1 OP594DL1 aston OP5D35L1 astonc OP5CF9L1" "16"
 assert_eq "755" "$(stat -c '%a' "$ANYKERNEL_FIXTURE")" "AnyKernel script permissions"
 grep -q '^kernel.string=Test Kernel$' "$ANYKERNEL_FIXTURE" || fail "AnyKernel string"
 grep -q '^do.devicecheck=1$' "$ANYKERNEL_FIXTURE" || fail "AnyKernel device check"
@@ -698,6 +724,8 @@ grep -q '^device.name1=salami$' "$ANYKERNEL_FIXTURE" || fail "AnyKernel salami m
 grep -q '^device.name2=OP591BL1$' "$ANYKERNEL_FIXTURE" || fail "AnyKernel stock ID mapping"
 grep -q '^device.name4=aston$' "$ANYKERNEL_FIXTURE" || fail "AnyKernel aston mapping"
 grep -q '^device.name5=OP5D35L1$' "$ANYKERNEL_FIXTURE" || fail "AnyKernel 12R stock ID mapping"
+grep -q '^device.name6=astonc$' "$ANYKERNEL_FIXTURE" || fail "AnyKernel Ace 3 codename mapping"
+grep -q '^device.name7=OP5CF9L1$' "$ANYKERNEL_FIXTURE" || fail "AnyKernel Ace 3 stock ID mapping"
 grep -q '^supported.versions=16$' "$ANYKERNEL_FIXTURE" || fail "AnyKernel Android mapping"
 
 git -C "$ANYKERNEL_CACHE_FIXTURE_DIR" init -q
@@ -721,6 +749,7 @@ mkdir -p \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/tools" \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk/lib/arm64-v8a" \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8550/out/arch/arm64/boot" \
+  "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8650/out/arch/arm64/boot" \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8550/SukiSU-Ultra/userspace/ksud/bin/aarch64" \
   "$ANYKERNEL_PACKAGE_FIXTURE_DIR/bin"
 printf '%s\n' \
@@ -731,10 +760,13 @@ printf '%s\n' \
   'device.name3=' \
   'device.name4=' \
   'device.name5=' \
+  'device.name6=' \
+  'device.name7=' \
   'supported.versions=' \
   > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source/anykernel.sh"
 printf '%s\n' \
   '[ "$AKHOME" ] || export AKHOME=$POSTINSTALL/tmp/anykernel;' \
+  'ui_print " " "AnyKernel3 by osm0sis @ xda-developers" " ";' \
   '  if [ ! "$match" ]; then' \
   '    abort " " "Unsupported device. Aborting...";' \
   '  fi;' \
@@ -762,11 +794,13 @@ git clone -q "$ANYKERNEL_PACKAGE_FIXTURE_DIR/source" "$ANYKERNEL_PACKAGE_FIXTURE
 printf '%s\n' 'kernel.string=dirty-cache' > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/anykernel.sh"
 printf '%s\n' stale > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/Image"
 printf '%s\n' image > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8550/out/arch/arm64/boot/Image"
+printf '%s\n' image > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8650/out/arch/arm64/boot/Image"
 printf '%s\n' sukisu-arm64-busybox > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/sm8550/SukiSU-Ultra/userspace/ksud/bin/aarch64/busybox"
 printf '%s\n' magisk-arm64-magiskboot > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk/lib/arm64-v8a/libmagiskboot.so"
+printf '%s\n' magisk-arm64-busybox > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk/lib/arm64-v8a/libbusybox.so"
 (
   cd "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk"
-  zip -q "$ANYKERNEL_PACKAGE_FIXTURE_DIR/Magisk.apk" lib/arm64-v8a/libmagiskboot.so
+  zip -q "$ANYKERNEL_PACKAGE_FIXTURE_DIR/Magisk.apk" lib/arm64-v8a/libmagiskboot.so lib/arm64-v8a/libbusybox.so
 )
 cat > "$ANYKERNEL_PACKAGE_FIXTURE_DIR/bin/jq" <<'EOF'
 #!/usr/bin/env bash
@@ -824,6 +858,9 @@ for package_timestamp in 20260101_000000 20260101_000001; do
     || fail "AnyKernel packaging did not produce the flashable archive"
   test -s "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/release-assets/SHA256SUMS" \
     || fail "AnyKernel packaging did not produce checksums"
+  grep -Fxq 'ui_print " " "Kernel developer: AzusaMyo @ xda-developers" " ";' \
+    "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" \
+    || fail "AnyKernel package does not show the requested kernel developer"
   grep -Fxq 'split_boot;' \
     "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/anykernel.sh" \
     || fail "AnyKernel package does not split ramdiskless boot images"
@@ -883,6 +920,50 @@ for package_timestamp in 20260101_000000 20260101_000001; do
     "AnyKernel preflight diagnostics idempotence"
 done
 
+(
+  cd "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work"
+  PATH="$ANYKERNEL_PACKAGE_FIXTURE_DIR/bin:$PATH" \
+  SOC=sm8650 \
+  PROFILE_ID=sm8650-oneplus12-crdroid \
+  TARGET_NAME='OnePlus 12' \
+  DEVICE_CODENAMES=waffle \
+  DEVICE_NAMES='waffle OP5929L1 OP595DL1' \
+  SUPPORTED_ANDROID_VERSIONS=16 \
+  SOURCE_NAME=crDroid \
+  KERNEL_BRANCH=16.0 \
+  MODULES_BRANCH=16.0 \
+  KERNEL_COMMIT=1111111111111111111111111111111111111111 \
+  MODULES_COMMIT=2222222222222222222222222222222222222222 \
+  CLANG_VERSION=test-clang \
+  KSU_TYPE=KernelSU-Next-with-susfs \
+  ROM_GKI_MODULE_COMPAT=1 \
+  BUILD_TIMESTAMP=20260101_000002 \
+  GITHUB_WORKSPACE="$ANYKERNEL_PACKAGE_FIXTURE_DIR/work" \
+  GITHUB_ENV="$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/github-env" \
+  GITHUB_OUTPUT="$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/github-output" \
+  MAGISK_APK_PATH="$ANYKERNEL_PACKAGE_FIXTURE_DIR/Magisk.apk" \
+  MAGISK_APK_SHA256="$(sha256sum "$ANYKERNEL_PACKAGE_FIXTURE_DIR/Magisk.apk" | cut -d' ' -f1)" \
+  MAGISKBOOT_ARM64_SHA256="$(sha256sum "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk/lib/arm64-v8a/libmagiskboot.so" | cut -d' ' -f1)" \
+  MAGISK_BUSYBOX_ARM64_SHA256="$(sha256sum "$ANYKERNEL_PACKAGE_FIXTURE_DIR/magisk-apk/lib/arm64-v8a/libbusybox.so" | cut -d' ' -f1)" \
+  ANYKERNEL_REPO="$ANYKERNEL_PACKAGE_FIXTURE_DIR/source" \
+  ANYKERNEL_COMMIT="$ANYKERNEL_PACKAGE_COMMIT" \
+  bash "$ANYKERNEL_PACKAGE_SCRIPT" >/dev/null
+)
+test -s "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/release-assets/sm8650-oneplus12-crdroid_KernelSU-Next-with-susfs_111111111111_20260101_000002_rom-gki-compat.zip" \
+  || fail "OnePlus 12 package with arm64 tools was not produced"
+assert_eq "magisk-arm64-magiskboot" \
+  "$(cat "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/tools/magiskboot")" \
+  "OnePlus 12 MagiskBoot replacement"
+assert_eq "magisk-arm64-busybox" \
+  "$(cat "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/tools/busybox")" \
+  "OnePlus 12 BusyBox replacement"
+grep -Fq 'Bundled MagiskBoot ABI: arm64' \
+  "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" \
+  || fail "OnePlus 12 package does not report arm64 MagiskBoot"
+grep -Fq 'Removing incompatible app-injected mkbootfs' \
+  "$ANYKERNEL_PACKAGE_FIXTURE_DIR/work/AnyKernel3/META-INF/com/google/android/update-binary" \
+  || fail "OnePlus 12 package does not remove an injected 32-bit mkbootfs"
+
 for i in "${!profiles[@]}"; do
   resolve_build_profile "${profiles[$i]}"
   configure_anykernel_properties \
@@ -891,7 +972,7 @@ for i in "${!profiles[@]}"; do
     "$DEVICE_NAMES" \
     "16"
   for device_name in $DEVICE_NAMES; do
-    grep -q "^device.name[1-5]=${device_name}$" "$ANYKERNEL_FIXTURE" \
+    grep -q "^device.name[1-7]=${device_name}$" "$ANYKERNEL_FIXTURE" \
       || fail "${profiles[$i]} did not inject device ID: $device_name"
   done
 done
