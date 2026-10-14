@@ -172,6 +172,7 @@ jobs:
 
     env:
       DEBIAN_FRONTEND: noninteractive
+      KERNEL_REPO_URL: https://github.com/PixelOS-Devices/android_kernel_oneplus_sm8550
 
     steps:
       - name: Checkout pipeline
@@ -189,6 +190,7 @@ jobs:
           INPUT_ROOT_SOLUTION: ${{ matrix.root_solution }}
           INPUT_BUILD_MODE: ${{ inputs.build_mode }}
           INPUT_ROM_GKI_MODULE_COMPAT: ${{ inputs.rom_gki_module_compat }}
+          KERNEL_REPO_URL: ${{ env.KERNEL_REPO_URL }}
         run: bash scripts/resolve-profile.sh
 
       - name: Set build metadata
@@ -279,7 +281,6 @@ jobs:
         if: inputs.build_mode != 'Patch/config validation only' && runner.environment == 'github-hosted'
         run: |
           set -euo pipefail
-          # These preinstalled SDKs are unused by this native kernel build.
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
           df -h "${RUNNER_TEMP}"
 
@@ -290,7 +291,6 @@ jobs:
           SWAPFILE="${RUNNER_TEMP:-/tmp}/kernel-build-swapfile"
           AVAILABLE_GB="$(df -BG --output=avail "${RUNNER_TEMP:-/tmp}" | tail -n 1 | tr -dc '0-9')"
           SWAP_GB=32
-          # Keep disk space for object files and the final kernel package.
           if (( AVAILABLE_GB < SWAP_GB + 12 )); then
             SWAP_GB=$((AVAILABLE_GB - 12))
           fi
