@@ -113,6 +113,11 @@ on:
         options:
           - Strict GKI module checks (default)
           - Use existing ROM system_dlkm modules (experimental)
+      custom_kernel_repo:
+        description: Custom Kernel Repo URL (leave blank to use default)
+        required: false
+        type: string
+        default: https://github.com/PixelOS-Devices/android_kernel_oneplus_sm8550
 
 permissions:
   contents: read
@@ -172,7 +177,7 @@ jobs:
 
     env:
       DEBIAN_FRONTEND: noninteractive
-      KERNEL_REPO_URL: https://github.com/PixelOS-Devices/android_kernel_oneplus_sm8550
+      KERNEL_REPO_URL: ${{ inputs.custom_kernel_repo }}
 
     steps:
       - name: Checkout pipeline
@@ -451,7 +456,7 @@ jobs:
               gh release view "$RELEASE_TAG" >/dev/null 2>&1 && return 0
               sleep $((attempt * 5))
             done
-            echo "::error::GitHub denied release creation for the pre-reserved tag ${RELEASE_TAG}. Confirm that this job's setup log grants Contents: write."
+            echo "::error::GitHub denied release creation for the pre-reserved tag ${RELEASE_TAG}.Confirm that this job's setup log grants Contents: write."
             return 1
           }
 
