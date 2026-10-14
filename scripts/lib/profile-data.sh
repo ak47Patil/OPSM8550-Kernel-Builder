@@ -266,13 +266,13 @@ resolve_clang_version() {
     "Recommended (auto-select based on branch)")
       case "$branch" in
         main|master|android-mainline*) CLANG_VERSION="clang-r596125" ;;
-        lineage-24*|seventeen*|android17*|17.*) CLANG_VERSION="clang-r584948" ;;
+        lineage-24*|seventeen*|android17*|17.*|17|crdroid-13*) CLANG_VERSION="clang-r584948" ;;
         lineage-19.1*|oneplus/*_s_12.1*|oneplus/*_s_12.0*) CLANG_VERSION="clang-r416183b1" ;;
         lineage-20*|thirteen*|android13*|13.*|oneplus/*_t_13*|oneplus_*_t_13*) CLANG_VERSION="clang-r450784d" ;;
         lineage-21*|fourteen*|android14*|14.*|oneplus/*_u_14*|oneplus_*_u_14*) CLANG_VERSION="clang-r487747c" ;;
         lineage-22*|fifteen*|android15*|15.*|oneplus/*_v_15*|oneplus_*_v_15*) CLANG_VERSION="clang-r536225" ;;
         lineage-23.0*) CLANG_VERSION="clang-r547379" ;;
-        16.0|lineage-23*|sixteen*|android16*|16.*|oneplus/*_b_16*|oneplus_*_b_16*) CLANG_VERSION="clang-r563880c" ;;
+        16.0|16|lineage-23*|sixteen*|android16*|16.*|oneplus/*_b_16*|oneplus_*_b_16*) CLANG_VERSION="clang-r563880c" ;;
         *)
           CLANG_VERSION="clang-r563880c"
           echo "::warning::Could not confidently infer clang for '$branch'; using $CLANG_VERSION."
@@ -349,12 +349,12 @@ infer_android_versions() {
   local branch="$1"
 
   case "$branch" in
-    lineage-24*|seventeen*|android17*|17.*) SUPPORTED_ANDROID_VERSIONS="17" ;;
-    lineage-19.1*|oneplus/*_s_12*|oneplus_*_s_12*) SUPPORTED_ANDROID_VERSIONS="12" ;;
-    lineage-20*|thirteen*|android13*|13.*|oneplus/*_t_13*|oneplus_*_t_13*) SUPPORTED_ANDROID_VERSIONS="13" ;;
-    lineage-21*|fourteen*|android14*|14.*|oneplus/*_u_14*|oneplus_*_u_14*) SUPPORTED_ANDROID_VERSIONS="14" ;;
-    lineage-22*|fifteen*|android15*|15.*|oneplus/*_v_15*|oneplus_*_v_15*) SUPPORTED_ANDROID_VERSIONS="15" ;;
-    16.0|lineage-23*|sixteen*|android16*|16.*|oneplus/*_b_16*|oneplus_*_b_16*) SUPPORTED_ANDROID_VERSIONS="16" ;;
+    lineage-24*|seventeen*|android17*|17.*|17|17.0|crdroid-13*) SUPPORTED_ANDROID_VERSIONS="17" ;;
+    lineage-19.1*|oneplus/*_s_12*|oneplus_*_s_12*|12|12.0) SUPPORTED_ANDROID_VERSIONS="12" ;;
+    lineage-20*|thirteen*|android13*|13.*|13|13.0|oneplus/*_t_13*|oneplus_*_t_13*) SUPPORTED_ANDROID_VERSIONS="13" ;;
+    lineage-21*|fourteen*|android14*|14.*|14|14.0|oneplus/*_u_14*|oneplus_*_u_14*) SUPPORTED_ANDROID_VERSIONS="14" ;;
+    lineage-22*|fifteen*|android15*|15.*|15|15.0|oneplus/*_v_15*|oneplus_*_v_15*) SUPPORTED_ANDROID_VERSIONS="15" ;;
+    16.0|16|lineage-23*|sixteen*|android16*|16.*|oneplus/*_b_16*|oneplus_*_b_16*) SUPPORTED_ANDROID_VERSIONS="16" ;;
     *) SUPPORTED_ANDROID_VERSIONS="" ;;
   esac
 }
