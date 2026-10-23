@@ -62,6 +62,15 @@ fi
 KERNEL_REPO="${KERNEL_REPO_OVERRIDE:-$DEFAULT_KERNEL_REPO}"
 MODULES_REPO="${MODULES_REPO_OVERRIDE:-$DEFAULT_MODULES_REPO}"
 
+echo "Checking kernel repository: $KERNEL_REPO"
+echo "Checking kernel branch: $INPUT_KERNEL_BRANCH"
+
+if ! git ls-remote --exit-code --heads "$KERNEL_REPO" \
+  "refs/heads/$INPUT_KERNEL_BRANCH"; then
+  echo "::error::Cannot access kernel branch '$INPUT_KERNEL_BRANCH' in $KERNEL_REPO"
+  exit 1
+  
+fi
 # Manual branch mode check - ensures user selected branch is strictly honored
 if [[ "$INPUT_BRANCH_MODE" == "I want to select the branch myself" ]]; then
   KERNEL_BRANCH="$INPUT_KERNEL_BRANCH"
