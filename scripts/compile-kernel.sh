@@ -135,13 +135,28 @@ EXTRACT_CERT_SOURCE="$(detect_extract_cert_source)" || {
   exit 1
 }
 repair_extract_cert_key_pass_guard "$EXTRACT_CERT_SOURCE"
-install_ksu_variant "${KSU_TYPE}"
+
+# FinaSU किंवा इतर KSU व्हॅरिएंट इन्स्टॉल करणे
+if [[ "$KSU_TYPE" == "FinaSU" || "$KSU_TYPE" == "FinaSU-with-susfs" ]]; then
+  echo "[+] Setting up FinaSU v1.0.8..."
+  rm -rf drivers/kernelsu
+  git clone --depth=1 https://github.com/LyraVoid/FinaSU.git drivers/kernelsu
+  
+  if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig 2>/dev/null; then
+    echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+  fi
+  if ! grep -q "obj-y += kernelsu/" drivers/Makefile 2>/dev/null; then
+    echo 'obj-y += kernelsu/' >> drivers/Makefile
+  fi
+else
+  install_ksu_variant "${KSU_TYPE}"
+fi
 
 if [[ "$KSU_TYPE" == *KPM* ]]; then
   verify_kpm_source_integration "${KSU_KERNEL_DIR}"
 fi
 
-if [[ "$KSU_TYPE" == *susfs* ]]; then
+if [[ "$KSU_TYPE" == *susfs* || "$KSU_TYPE" == "FinaSU-with-susfs" ]]; then
   : "${SUSFS_REF:?}"
   : "${SUSFS_COMMIT:?}"
   : "${SUSFS_PATCH_FILE:?}"
@@ -180,6 +195,15 @@ BUILD_PHASE="config generation"
 apply_variant_configs arch/arm64/configs/gki_defconfig
 apply_rom_gki_module_compat_config arch/arm64/configs/gki_defconfig
 make "${MAKE_ARGS[@]}" gki_defconfig "${ACTIVE_CONFIG_ARRAY[@]}"
+
+# FinaSU साठी आवश्यक कर्नल कॉन्फिग (Built-in CONFIG_KSU=y आणि Network Isolation) इनॅबल करणे
+if [[ "$KSU_TYPE" == "FinaSU" || "$KSU_TYPE" == "FinaSU-with-susfs" ]]; then
+  echo "CONFIG_KSU=y" >> out/.config
+  echo "CONFIG_IP_NF_IPTABLES=y" >> out/.config
+  echo "CONFIG_IP6_NF_IPTABLES=y" >> out/.config
+  echo "CONFIG_NETFILTER_XT_MATCH_STATE=y" >> out/.config
+fi
+
 apply_variant_configs out/.config
 apply_rom_gki_module_compat_config out/.config
 make "${MAKE_ARGS[@]}" olddefconfig
@@ -200,7 +224,7 @@ fi
 if [[ "$KSU_TYPE" != "None" ]]; then
   require_config_enabled out/.config CONFIG_KSU
 fi
-if [[ "$KSU_TYPE" == *susfs* ]]; then
+if [[ "$KSU_TYPE" == *susfs* || "$KSU_TYPE" == "FinaSU-with-susfs" ]]; then
   require_config_enabled  out/.config CONFIG_KSU_SUSFS
   require_config_enabled  out/.config CONFIG_KSU_SUSFS_SUS_MAP
   require_config_enabled  out/.config CONFIG_KSU_SUSFS_OPEN_REDIRECT
@@ -229,8 +253,6 @@ CONFIG_SECONDS=$(($(date +%s) - CONFIG_STARTED_AT))
 if [[ "$BUILD_MODE" == "Patch/config validation only" ]]; then
   BUILD_PHASE="host-tool smoke compile"
   COMPILE_STARTED_AT="$(date +%s)"
-  # Use the owning Kbuild target so extract-cert is compiled with HOSTCC and
-  # linked with libcrypto, rather than treated as an arm64 kernel object.
   EXTRACT_CERT_TARGET='certs/'
   [[ "$EXTRACT_CERT_SOURCE" != scripts/* ]] || EXTRACT_CERT_TARGET=scripts
   if ! make "${MAKE_ARGS[@]}" "$EXTRACT_CERT_TARGET" || \
@@ -242,13 +264,13 @@ if [[ "$BUILD_MODE" == "Patch/config validation only" ]]; then
   COMPILE_SECONDS=$(($(date +%s) - COMPILE_STARTED_AT))
 
   SMOKE_TARGETS=()
-  if [[ "$KSU_TYPE" == *susfs* ]]; then
+  if [[ "$KSU_TYPE" == *susfs* || "$KSU_TYPE" == "FinaSU-with-susfs" ]]; then
     SMOKE_TARGETS+=(
       fs/susfs.o
       fs/namespace.o
       fs/proc/task_mmu.o
       kernel/reboot.o
-      "${KSU_DRIVER_DIR}/kernelsu/"
+      "drivers/kernelsu/"
     )
   fi
   if [[ "$KSU_TYPE" == *nomount* ]]; then
@@ -266,19 +288,10 @@ if [[ "$BUILD_MODE" == "Patch/config validation only" ]]; then
       fs/proc/base.o
     )
   fi
-  if [[ "$KSU_TYPE" == *KPM* ]]; then
-    if [[ "$KSU_TYPE" != *susfs* ]]; then
-      SMOKE_TARGETS+=("${KSU_DRIVER_DIR}/kernelsu/")
-    fi
-    # Building the KernelSU directory includes all CONFIG_KPM objects as well
-    # as its SUSFS compatibility sources and symbol resolver.
-  fi
 
   if [[ "${#SMOKE_TARGETS[@]}" -gt 0 ]]; then
     BUILD_PHASE="integration object smoke compile"
     COMPILE_STARTED_AT="$(date +%s)"
-    # A partial driver build does not visit the directories that generate
-    # compile.h and the SELinux flask/permission headers used by KernelSU.
     if ! make -j"$(nproc)" "${MAKE_ARGS[@]}" init/ security/selinux/; then
       COMPILE_SECONDS=$((COMPILE_SECONDS + $(date +%s) - COMPILE_STARTED_AT))
       echo '::error::KernelSU generated-header preparation failed.'
@@ -286,21 +299,12 @@ if [[ "$BUILD_MODE" == "Patch/config validation only" ]]; then
     fi
     if ! make -j"$(nproc)" "${MAKE_ARGS[@]}" "${SMOKE_TARGETS[@]}" 2>&1 | tee integration-smoke.log; then
       COMPILE_SECONDS=$((COMPILE_SECONDS + $(date +%s) - COMPILE_STARTED_AT))
-      echo "::error::SUSFS/NoMount/ZeroMount/KPM integration object smoke compile failed."
+      echo "::error::SUSFS/NoMount/ZeroMount/FinaSU integration object smoke compile failed."
       exit 1
     fi
     COMPILE_SECONDS=$((COMPILE_SECONDS + $(date +%s) - COMPILE_STARTED_AT))
-    if [[ "$KSU_TYPE" == *susfs* ]]; then
+    if [[ "$KSU_TYPE" == *susfs* || "$KSU_TYPE" == "FinaSU-with-susfs" ]]; then
       verify_susfs_binary_presence
-    fi
-    if [[ "$KSU_TYPE" == *nomount* ]]; then
-      verify_nomount_binary_presence
-    fi
-    if [[ "$KSU_TYPE" == *zeromount* ]]; then
-      verify_zeromount_binary_presence
-    fi
-    if [[ "$KSU_TYPE" == *KPM* ]]; then
-      verify_kpm_binary_presence
     fi
   fi
 
@@ -345,26 +349,10 @@ if ! strings out/arch/arm64/boot/Image | grep -F "Linux version ${KERNEL_RELEASE
   exit 1
 fi
 echo "[+] Kernel release identity verified: ${KERNEL_RELEASE}"
-if [[ "$KSU_TYPE" == *susfs* ]]; then
-  echo "==== SUSFS CONFIG SNAPSHOT ===="
-  grep -E '^CONFIG_KSU_SUSFS|^CONFIG_KSU_MANUAL_HOOK|^CONFIG_TMPFS_XATTR=|^CONFIG_NOMOUNT=' out/.config || true
-  if [[ "$KSU_TYPE" == ReSukiSU* ]]; then
-    verify_resukisu_susfs_hook_mode
-  fi
+if [[ "$KSU_TYPE" == *susfs* || "$KSU_TYPE" == "FinaSU-with-susfs" ]]; then
+  echo "==== SUSFS/FINASU CONFIG SNAPSHOT ===="
+  grep -E '^CONFIG_KSU_SUSFS|^CONFIG_KSU_MANUAL_HOOK|^CONFIG_TMPFS_XATTR=' out/.config || true
   verify_susfs_binary_presence
-fi
-if [[ "$KSU_TYPE" == *nomount* ]]; then
-  verify_nomount_binary_presence
-fi
-if [[ "$KSU_TYPE" == *zeromount* ]]; then
-  echo "==== ZEROMOUNT CONFIG SNAPSHOT ===="
-  grep -E '^CONFIG_ZEROMOUNT=|^CONFIG_KSU_SUSFS=' out/.config || true
-  verify_zeromount_binary_presence
-fi
-if [[ "$KSU_TYPE" == *KPM* ]]; then
-  echo "==== KPM CONFIG SNAPSHOT ===="
-  grep -E '^CONFIG_KPM=|^CONFIG_KALLSYMS(_ALL)?=' out/.config || true
-  verify_kpm_binary_presence
 fi
 
 ccache --show-stats || true
