@@ -116,6 +116,10 @@ case "$KSU_TYPE" in
     KSU_REPO="https://github.com/pershoot/KernelSU-Next.git"
     KSU_REF="dev-susfs"
     ;;
+  FinaSU|FinaSU-with-susfs)
+    KSU_REPO="https://github.com/LyraVoid/FinaSU.git"
+    KSU_REF="main"
+    ;;
   KowSU)
     KSU_REPO="https://github.com/KOWX712/KernelSU.git"
     KSU_REF="master"
