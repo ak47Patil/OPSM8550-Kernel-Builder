@@ -118,6 +118,16 @@ on:
         options:
           - Strict GKI module checks (default)
           - Use existing ROM system_dlkm modules (experimental)
+      custom_modules_repo:
+        description: Custom Kernel Modules Repo URL
+        required: false
+        type: string
+        default: "https://github.com/gaurav-paul9/android_kernel_oneplus_sm8550-modules"
+      custom_modules_branch:
+        description: Custom Kernel Modules Branch
+        required: false
+        type: string
+        default: "lunaris"
 
 permissions:
   contents: read
@@ -196,6 +206,8 @@ jobs:
           INPUT_ROOT_SOLUTION: ${{ matrix.root_solution }}
           INPUT_BUILD_MODE: ${{ inputs.build_mode }}
           INPUT_ROM_GKI_MODULE_COMPAT: ${{ inputs.rom_gki_module_compat }}
+          INPUT_CUSTOM_MODULES_REPO: ${{ inputs.custom_modules_repo }}
+          INPUT_CUSTOM_MODULES_BRANCH: ${{ inputs.custom_modules_branch }}
         run: bash scripts/resolve-profile.sh
 
       - name: Set build metadata
@@ -232,6 +244,9 @@ jobs:
             ${{ runner.os }}-anykernel3-
 
       - name: Clone kernel source
+        env:
+          INPUT_CUSTOM_MODULES_REPO: ${{ inputs.custom_modules_repo }}
+          INPUT_CUSTOM_MODULES_BRANCH: ${{ inputs.custom_modules_branch }}
         run: bash scripts/clone-sources.sh
 
       - name: Download AOSP Clang
